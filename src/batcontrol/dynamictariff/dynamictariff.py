@@ -19,6 +19,7 @@ from .awattar import Awattar
 from .tibber import Tibber
 from .evcc import Evcc
 from .energyforecast import Energyforecast
+from .tariffzones import TariffZones
 from .dynamictariff_interface import TariffInterface
 
 
@@ -129,6 +130,28 @@ class DynamicTariff:
             if provider.lower() == 'energyforecast_96':
                 selected_tariff.upgrade_48h_to_96h()
 
+        elif provider.lower() == 'tariff_zones':
+            required_fields = ['tariff_zone_1', 'zone_1_hours', 'tariff_zone_2', 'zone_2_hours']
+            for field in required_fields:
+                if field not in config:
+                    raise RuntimeError(
+                        f'[DynTariff] Please include {field} in your configuration file'
+                    )
+            zone_3_hours = config.get('zone_3_hours')
+            tariff_zone_3 = config.get('tariff_zone_3')
+            selected_tariff = TariffZones(
+                timezone,
+                min_time_between_api_calls,
+                delay_evaluation_by_seconds,
+                target_resolution=target_resolution,
+                tariff_zone_1=float(config['tariff_zone_1']),
+                zone_1_hours=config['zone_1_hours'],
+                tariff_zone_2=float(config['tariff_zone_2']),
+                zone_2_hours=config['zone_2_hours'],
+                tariff_zone_3=float(tariff_zone_3) if tariff_zone_3 is not None else None,
+                zone_3_hours=zone_3_hours,
+            )
+
         else:
-            raise RuntimeError(f'[DynamicTariff] Unkown provider {provider}')
+            raise RuntimeError(f'[DynamicTariff] Unknown provider {provider}')
         return selected_tariff
