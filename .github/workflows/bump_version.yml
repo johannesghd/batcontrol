@@ -1,5 +1,9 @@
 name: Bump version
 
+permissions:
+  contents: write # Grants write access to repository contents (required for creating releases)
+  pull-requests: write
+
 on:
   workflow_call:
     inputs:
