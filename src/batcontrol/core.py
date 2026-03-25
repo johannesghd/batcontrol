@@ -963,6 +963,7 @@ class Batcontrol:
         """Initialize optional built-in web dashboard."""
         web_config = config.get('webinterface') or {}
         if not web_config.get('enabled', False):
+            logger.info('Web dashboard disabled in config')
             return
 
         host = web_config.get('host', '0.0.0.0')
@@ -976,6 +977,7 @@ class Batcontrol:
                 title=web_config.get('title', 'batcontrol dashboard'),
             )
             self.dashboard_server.start()
+            logger.info('Web dashboard enabled on %s:%d', host, self.dashboard_server.port)
         except OSError as exc:
             logger.error(
                 'Failed to start web dashboard on %s:%d: %s',
@@ -988,6 +990,7 @@ class Batcontrol:
         """Initialize optional SQLite recorder for source and run data."""
         recorder_config = config.get('data_recorder') or {}
         if not recorder_config.get('enabled', False):
+            logger.info('SQLite data recorder disabled in config')
             return
 
         db_path = recorder_config.get(
@@ -995,6 +998,7 @@ class Batcontrol:
             os.path.join('logs', 'batcontrol.sqlite3'))
         try:
             self.data_recorder = DataRecorder(db_path)
+            logger.info('SQLite data recorder enabled at %s', db_path)
         except (OSError, sqlite3.Error) as exc:
             logger.error('Failed to initialize data recorder at %s: %s', db_path, exc)
             self.data_recorder = None
