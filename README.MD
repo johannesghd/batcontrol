@@ -175,16 +175,19 @@ webinterface:
   host: 0.0.0.0
   port: 8080
   history_days: 7
-  history_file: logs/webinterface_history.jsonl
+data_recorder:
+  enabled: true
+  path: logs/batcontrol.sqlite3
 ```
 
 The dashboard shows:
 - The current day's load profile
 - PV production forecast
 - Prices
-- A rolling history of SOC plus interval snapshots of production and consumption
+- A time slider for stored calculation runs
+- Historical SOC, production, and consumption derived from the SQLite recorder
 
-Historical production and consumption begin accumulating from the moment the dashboard history is enabled.
+The dashboard reads its history from the SQLite recorder. Enable both `webinterface` and `data_recorder` if you want to inspect how forecasts changed over time.
 
 ## Lightweight SQLite Recorder
 

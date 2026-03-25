@@ -18,8 +18,7 @@ webinterface:
   host: 0.0.0.0
   port: 8080
   title: batcontrol dashboard
-  history_days: 7
-  history_file: logs/webinterface_history.jsonl
+  history_days: 7 # Number of days shown in the slider/history window, read from SQLite
 
 #--------------------------
 #  Lightweight SQLite Recorder

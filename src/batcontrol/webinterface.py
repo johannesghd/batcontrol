@@ -3,11 +3,11 @@
 import datetime
 import json
 import logging
-import os
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Dict, List, Optional
+from urllib.parse import parse_qs, urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -18,126 +18,14 @@ def align_timestamp(timestamp: float, interval_minutes: int) -> int:
     return int(timestamp - (timestamp % interval_seconds))
 
 
-class DashboardHistory:
-    """Persist a compact interval history for dashboard charts."""
-
-    def __init__(
-            self,
-            filepath: str,
-            interval_minutes: int,
-            retention_days: int = 7) -> None:
-        self.filepath = filepath
-        self.interval_minutes = interval_minutes
-        self.retention_days = retention_days
-        self._lock = threading.RLock()
-        self._entries = []  # type: List[Dict]
-        self._load()
-
-    def _load(self) -> None:
-        with self._lock:
-            self._entries = []
-            if not self.filepath or not os.path.isfile(self.filepath):
-                return
-
-            try:
-                with open(self.filepath, 'r', encoding='utf-8') as handle:
-                    for line in handle:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            entry = json.loads(line)
-                        except json.JSONDecodeError:
-                            logger.warning(
-                                'Skipping invalid dashboard history row in %s',
-                                self.filepath)
-                            continue
-                        if isinstance(entry, dict) and 'timestamp' in entry:
-                            self._entries.append(entry)
-            except OSError as exc:
-                logger.warning(
-                    'Unable to read dashboard history from %s: %s',
-                    self.filepath,
-                    exc)
-                return
-
-            self._prune_locked()
-
-    def _prune_locked(self) -> None:
-        if not self._entries:
-            return
-
-        newest_timestamp = max(
-            int(entry.get('timestamp', 0)) for entry in self._entries)
-        cutoff = newest_timestamp - self.retention_days * 24 * 3600
-        self._entries = [
-            entry for entry in self._entries
-            if int(entry.get('timestamp', 0)) >= cutoff
-        ]
-
-    def _write_locked(self) -> None:
-        if not self.filepath:
-            return
-
-        directory = os.path.dirname(self.filepath)
-        if directory:
-            os.makedirs(directory, exist_ok=True)
-
-        with open(self.filepath, 'w', encoding='utf-8') as handle:
-            for entry in self._entries:
-                handle.write(json.dumps(entry, sort_keys=True) + '\n')
-
-    def record(
-            self,
-            timestamp: float,
-            soc: float,
-            production: float,
-            consumption: float) -> None:
-        """Store one interval snapshot, overwriting duplicates in-place."""
-        aligned_ts = align_timestamp(timestamp, self.interval_minutes)
-        entry = {
-            'timestamp': aligned_ts,
-            'soc': round(float(soc), 3),
-            'production': round(float(production), 3),
-            'consumption': round(float(consumption), 3),
-        }
-
-        with self._lock:
-            replaced = False
-            for index, existing in enumerate(self._entries):
-                if int(existing.get('timestamp', -1)) == aligned_ts:
-                    self._entries[index] = entry
-                    replaced = True
-                    break
-            if not replaced:
-                self._entries.append(entry)
-                self._entries.sort(key=lambda item: int(item['timestamp']))
-
-            self._prune_locked()
-            self._write_locked()
-
-    def get_entries(self, since_timestamp: Optional[int] = None) -> List[Dict]:
-        """Return a copy of the stored history, optionally filtered."""
-        with self._lock:
-            entries = list(self._entries)
-
-        if since_timestamp is None:
-            return entries
-
-        return [
-            entry for entry in entries
-            if int(entry.get('timestamp', 0)) >= since_timestamp
-        ]
-
-
 class DashboardServer:
-    """Serve the batcontrol dashboard and a JSON snapshot endpoint."""
+    """Serve the batcontrol dashboard and JSON endpoints."""
 
     def __init__(
             self,
             host: str,
             port: int,
-            snapshot_provider: Callable[[], Dict],
+            snapshot_provider: Callable[[Optional[float]], Dict],
             title: str = 'batcontrol dashboard') -> None:
         self.host = host
         self.port = port
@@ -156,7 +44,10 @@ class DashboardServer:
 
         class DashboardHandler(BaseHTTPRequestHandler):
             def do_GET(self):  # pylint: disable=invalid-name
-                if self.path in ['/', '/index.html']:
+                parsed_url = urlparse(self.path)
+                query = parse_qs(parsed_url.query)
+
+                if parsed_url.path in ['/', '/index.html']:
                     body = _build_dashboard_html(page_title).encode('utf-8')
                     self.send_response(HTTPStatus.OK)
                     self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -165,8 +56,9 @@ class DashboardServer:
                     self.wfile.write(body)
                     return
 
-                if self.path == '/api/dashboard':
-                    payload = json.dumps(snapshot_provider()).encode('utf-8')
+                if parsed_url.path == '/api/dashboard':
+                    at_ts = _parse_float(query.get('at', [None])[0])
+                    payload = json.dumps(snapshot_provider(at_ts)).encode('utf-8')
                     self.send_response(HTTPStatus.OK)
                     self.send_header(
                         'Content-Type', 'application/json; charset=utf-8')
@@ -234,6 +126,25 @@ def build_forecast_series(
     return points
 
 
+def format_timepoint(timestamp: float, timezone) -> Dict:
+    """Convert a timestamp into dashboard-friendly datetime fields."""
+    point_time = datetime.datetime.fromtimestamp(timestamp, tz=timezone)
+    return {
+        'timestamp': int(timestamp),
+        'iso': point_time.isoformat(),
+        'label': point_time.strftime('%Y-%m-%d %H:%M'),
+    }
+
+
+def _parse_float(value):
+    if value in [None, '']:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_dashboard_html(title: str) -> str:
     escaped_title = title.replace('"', '&quot;')
     return f"""<!doctype html>
@@ -255,7 +166,6 @@ def _build_dashboard_html(title: str) -> str:
       --accent-soc: #1d4ed8;
       --accent-prod: #b45309;
       --accent-cons: #166534;
-      --danger: #991b1b;
       --shadow: 0 18px 48px rgba(49, 41, 29, 0.12);
       --radius: 24px;
     }}
@@ -276,7 +186,7 @@ def _build_dashboard_html(title: str) -> str:
     }}
     .hero {{
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
+      grid-template-columns: 1.3fr 1fr;
       gap: 20px;
       margin-bottom: 20px;
     }}
@@ -288,7 +198,7 @@ def _build_dashboard_html(title: str) -> str:
       box-shadow: var(--shadow);
       padding: 22px;
     }}
-    h1, h2, h3, p {{ margin: 0; }}
+    h1, h2, p {{ margin: 0; }}
     h1 {{
       font-size: clamp(2.2rem, 4vw, 4.4rem);
       line-height: 0.94;
@@ -317,7 +227,7 @@ def _build_dashboard_html(title: str) -> str:
       margin-bottom: 6px;
     }}
     .stat-value {{
-      font-size: clamp(1.4rem, 2vw, 2rem);
+      font-size: clamp(1.2rem, 2vw, 2rem);
       font-weight: 700;
       letter-spacing: -0.04em;
     }}
@@ -329,10 +239,26 @@ def _build_dashboard_html(title: str) -> str:
     }}
     .full-width {{ margin-bottom: 18px; }}
     .chart-card h2 {{
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       margin-bottom: 14px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
+    }}
+    .slider-row {{
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }}
+    .slider-meta {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }}
+    input[type="range"] {{
+      width: 100%;
     }}
     .legend {{
       display: flex;
@@ -386,11 +312,18 @@ def _build_dashboard_html(title: str) -> str:
     <section class="hero">
       <div class="panel">
         <p class="subtle">Battery control dashboard</p>
-        <h1>Daily load, PV forecast, prices, and recent battery history.</h1>
+        <h1>Forecasts, prices, and historical runs from SQLite.</h1>
         <p class="subtle" id="summary">Waiting for batcontrol data…</p>
+        <div class="slider-row">
+          <input id="timeline-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+          <div class="slider-meta">
+            <span id="selected-run">No historical runs available.</span>
+            <span id="source-updates"></span>
+          </div>
+        </div>
       </div>
       <div class="panel">
-        <h2 style="font-size:1rem; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:14px;">Current Status</h2>
+        <h2 style="font-size:1rem; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:14px;">Selected Run</h2>
         <div class="stats" id="stats"></div>
       </div>
     </section>
@@ -411,7 +344,7 @@ def _build_dashboard_html(title: str) -> str:
     </section>
 
     <section class="panel chart-card full-width">
-      <h2>Past SOC, Production, Consumption</h2>
+      <h2>Recent Run History</h2>
       <div class="legend">
         <span><i style="background: var(--accent-soc);"></i>SOC %</span>
         <span><i style="background: var(--accent-prod);"></i>Production W</span>
@@ -420,7 +353,7 @@ def _build_dashboard_html(title: str) -> str:
       <div id="history-chart"></div>
       <div class="footer">
         <span id="refresh-info">Not loaded yet</span>
-        <span id="history-note">Historical production/consumption starts when the dashboard history recorder is enabled.</span>
+        <span id="history-note">Move the slider to inspect how stored forecasts changed over time.</span>
       </div>
     </section>
   </div>
@@ -434,10 +367,11 @@ def _build_dashboard_html(title: str) -> str:
       production: getCss('--accent-prod'),
       consumption: getCss('--accent-cons'),
       grid: getCss('--grid'),
-      ink: getCss('--ink'),
       muted: getCss('--muted'),
-      danger: getCss('--danger'),
     }};
+
+    let timeline = [];
+    let selectedIndex = null;
 
     function getCss(name) {{
       return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -493,9 +427,6 @@ def _build_dashboard_html(title: str) -> str:
         minY -= 1;
         maxY += 1;
       }}
-      if (options.minY !== undefined) minY = Math.min(minY, options.minY);
-      if (options.maxY !== undefined) maxY = Math.max(maxY, options.maxY);
-
       const times = points.map(point => point.timestamp);
       const minX = Math.min(...times);
       const maxX = Math.max(...times);
@@ -510,10 +441,9 @@ def _build_dashboard_html(title: str) -> str:
         return height - pad.bottom - ((value - minY) / ySpan) * (height - pad.top - pad.bottom);
       }}
 
-      const gridLines = 4;
       let svg = `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="chart">`;
-      for (let i = 0; i <= gridLines; i += 1) {{
-        const yValue = minY + (ySpan / gridLines) * i;
+      for (let i = 0; i <= 4; i += 1) {{
+        const yValue = minY + (ySpan / 4) * i;
         const y = yScale(yValue);
         svg += `<line x1="${{pad.left}}" y1="${{y}}" x2="${{width - pad.right}}" y2="${{y}}" stroke="${{COLORS.grid}}" stroke-width="1" />`;
         svg += `<text x="${{pad.left - 8}}" y="${{y + 4}}" text-anchor="end" font-size="12" fill="${{COLORS.muted}}">${{fmtNumber(yValue, options.yDigits ?? 0)}}</text>`;
@@ -534,46 +464,99 @@ def _build_dashboard_html(title: str) -> str:
         svg += `<path d="${{path}}" fill="none" stroke="${{item.color}}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`;
       }});
 
+      if (options.selectedTimestamp) {{
+        const x = xScale(options.selectedTimestamp);
+        svg += `<line x1="${{x}}" y1="${{pad.top}}" x2="${{x}}" y2="${{height - pad.bottom}}" stroke="${{COLORS.price}}" stroke-width="2" stroke-dasharray="5 5" />`;
+      }}
+
       svg += `</svg>`;
       target.innerHTML = svg;
     }}
 
-    function toSingleSeries(points, color) {{
-      return [{{
-        color,
-        points,
-      }}];
+    function series(points, color) {{
+      return [{{ color, points }}];
     }}
 
-    async function refresh() {{
-      try {{
-        const response = await fetch('/api/dashboard', {{ cache: 'no-store' }});
-        const data = await response.json();
-
-        buildStats(data.status);
-        document.getElementById('summary').textContent =
-          `Latest evaluation ${fmtDate(data.generated_at)} in ${data.timezone}.`;
-        document.getElementById('refresh-info').textContent =
-          `Last refresh ${fmtDate(data.generated_at)}.`;
-        document.getElementById('history-note').textContent =
-          data.history_note || '';
-
-        renderChart('load-chart', toSingleSeries(data.today.load_profile, COLORS.load));
-        renderChart('pv-chart', toSingleSeries(data.today.pv_forecast, COLORS.pv));
-        renderChart('price-chart', toSingleSeries(data.today.prices, COLORS.price), {{ yDigits: 3 }});
-        renderChart('history-chart', [
-          {{ color: COLORS.soc, points: data.history.soc }},
-          {{ color: COLORS.production, points: data.history.production }},
-          {{ color: COLORS.consumption, points: data.history.consumption }},
-        ], {{ yDigits: 0 }});
-      }} catch (error) {{
-        document.getElementById('summary').textContent =
-          `Dashboard fetch failed: ${{error.message}}`;
+    function updateSlider() {{
+      const slider = document.getElementById('timeline-slider');
+      if (!timeline.length) {{
+        slider.disabled = true;
+        slider.min = 0;
+        slider.max = 0;
+        slider.value = 0;
+        return;
       }}
+
+      slider.disabled = false;
+      slider.min = 0;
+      slider.max = timeline.length - 1;
+      slider.value = selectedIndex ?? timeline.length - 1;
     }}
 
-    refresh();
-    setInterval(refresh, 60000);
+    function formatSourceUpdates(sources) {{
+      const parts = [];
+      if (sources.prices && sources.prices.updated_at) {{
+        parts.push(`prices updated ${{fmtDate(sources.prices.updated_at)}}`);
+      }}
+      if (sources.solar_forecast && sources.solar_forecast.updated_at) {{
+        parts.push(`solar updated ${{fmtDate(sources.solar_forecast.updated_at)}}`);
+      }}
+      return parts.join(' | ');
+    }}
+
+    async function loadSnapshot(atTimestamp = null) {{
+      const url = atTimestamp ? `/api/dashboard?at=${{encodeURIComponent(atTimestamp)}}` : '/api/dashboard';
+      const response = await fetch(url, {{ cache: 'no-store' }});
+      return response.json();
+    }}
+
+    async function render(atTimestamp = null) {{
+      const data = await loadSnapshot(atTimestamp);
+      timeline = data.timeline || [];
+
+      if (timeline.length) {{
+        const selectedTs = data.selected_run ? data.selected_run.timestamp : timeline[timeline.length - 1].timestamp;
+        selectedIndex = timeline.findIndex(item => item.timestamp === selectedTs);
+        if (selectedIndex < 0) selectedIndex = timeline.length - 1;
+      }} else {{
+        selectedIndex = null;
+      }}
+
+      updateSlider();
+      buildStats(data.status);
+      document.getElementById('summary').textContent =
+        `Showing stored run ${{data.selected_run ? fmtDate(data.selected_run.iso) : 'n/a'}} from ${{data.timezone}}.`;
+      document.getElementById('selected-run').textContent =
+        data.selected_run ? `Selected run: ${{fmtDate(data.selected_run.iso)}}` : 'No stored run available.';
+      document.getElementById('source-updates').textContent =
+        formatSourceUpdates(data.sources);
+      document.getElementById('refresh-info').textContent =
+        `Dashboard generated ${{fmtDate(data.generated_at)}}. Timeline entries: ${{timeline.length}}.`;
+      document.getElementById('history-note').textContent =
+        data.history_note || '';
+
+      renderChart('load-chart', series(data.today.load_profile, COLORS.load));
+      renderChart('pv-chart', series(data.today.pv_forecast, COLORS.pv));
+      renderChart('price-chart', series(data.today.prices, COLORS.price), {{ yDigits: 3 }});
+      renderChart('history-chart', [
+        {{ color: COLORS.soc, points: data.history.soc }},
+        {{ color: COLORS.production, points: data.history.production }},
+        {{ color: COLORS.consumption, points: data.history.consumption }},
+      ], {{
+        selectedTimestamp: data.selected_run ? data.selected_run.timestamp : null,
+        yDigits: 0,
+      }});
+    }}
+
+    document.getElementById('timeline-slider').addEventListener('input', async (event) => {{
+      const index = Number(event.target.value);
+      if (!timeline[index]) return;
+      await render(timeline[index].timestamp);
+    }});
+
+    render().catch((error) => {{
+      document.getElementById('summary').textContent = `Dashboard fetch failed: ${{error.message}}`;
+    }});
   </script>
 </body>
 </html>

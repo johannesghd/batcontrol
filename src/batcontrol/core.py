@@ -36,7 +36,7 @@ from .forecastsolar import ForecastSolar as solar_factory
 
 from .forecastconsumption import Consumption as consumption_factory
 from .datastore import DataRecorder
-from .webinterface import DashboardHistory, DashboardServer, build_forecast_series
+from .webinterface import DashboardServer, build_forecast_series, format_timepoint
 
 ERROR_IGNORE_TIME = 600  # 10 Minutes
 EVALUATIONS_EVERY_MINUTES = 3  # Every x minutes on the clock
@@ -91,8 +91,8 @@ class Batcontrol:
 
         self.last_logic_instance = None
         self._dashboard_lock = threading.RLock()
-        self.dashboard_history = None
         self.dashboard_server = None
+        self.dashboard_history_days = 7
         self.data_recorder = None
 
         self.config = configdict
@@ -472,7 +472,6 @@ class Batcontrol:
 
         # Store data for API
         self.__save_run_data(production, consumption, net_consumption, prices)
-        self._record_dashboard_history(production, consumption)
 
         # stop here if api_overwrite is set and reset it
         if self.api_overwrite:
@@ -966,18 +965,9 @@ class Batcontrol:
         if not web_config.get('enabled', False):
             return
 
-        history_path = web_config.get(
-            'history_file',
-            os.path.join('logs', 'webinterface_history.jsonl'))
-        history_days = int(web_config.get('history_days', 7))
         host = web_config.get('host', '0.0.0.0')
         port = int(web_config.get('port', 8080))
-
-        self.dashboard_history = DashboardHistory(
-            history_path,
-            self.time_resolution,
-            retention_days=history_days,
-        )
+        self.dashboard_history_days = int(web_config.get('history_days', 7))
         try:
             self.dashboard_server = DashboardServer(
                 host=host,
@@ -1043,48 +1033,76 @@ class Batcontrol:
             },
         )
 
-    def _record_dashboard_history(self, production, consumption) -> None:
-        """Persist one data point per active interval for dashboard history."""
-        if (
-            self.dashboard_history is None
-            or len(production) == 0
-            or len(consumption) == 0
-        ):
-            return
-
-        self.dashboard_history.record(
-            timestamp=self.last_run_time,
-            soc=self.get_SOC(),
-            production=production[0],
-            consumption=consumption[0],
-        )
-
-    def get_dashboard_snapshot(self) -> Dict:
+    def get_dashboard_snapshot(self, at_timestamp: Optional[float] = None) -> Dict:
         """Build the JSON payload consumed by the dashboard UI."""
-        with self._dashboard_lock:
-            run_time = self.last_run_time or time.time()
-            production = self.last_production
-            consumption = self.last_consumption
-            prices = self.last_prices
-            soc = self.last_SOC if self.last_SOC >= 0 else None
-            stored_energy = self.last_stored_energy if self.last_stored_energy >= 0 else None
-            reserved_energy = self.last_reserved_energy if self.last_reserved_energy >= 0 else None
-            charge_rate = self.last_charge_rate
-            mode = self.last_mode
-
+        selected_snapshot = None
+        timeline_entries = []
         history_entries = []
-        if self.dashboard_history is not None:
-            history_entries = self.dashboard_history.get_entries()
+        price_source = None
+        solar_source = None
+
+        if self.data_recorder is not None:
+            selected_snapshot = self.data_recorder.get_calculation_snapshot(at_timestamp)
+            since_ts = None
+            if selected_snapshot is not None:
+                selected_ts = selected_snapshot['created_at_ts']
+                since_ts = selected_ts - self.dashboard_history_days * 24 * 3600
+            timeline_entries = self.data_recorder.get_calculation_timeline(
+                since_ts=since_ts,
+                limit=500,
+            )
+            history_entries = self.data_recorder.get_history_series(
+                since_ts=since_ts,
+                limit=500,
+            )
+            if selected_snapshot is not None:
+                selected_ts = selected_snapshot['created_at_ts']
+                price_source = self.data_recorder.get_source_update_snapshot(
+                    'prices', selected_ts)
+                solar_source = self.data_recorder.get_source_update_snapshot(
+                    'solar_forecast', selected_ts)
+
+        if selected_snapshot is None:
+            with self._dashboard_lock:
+                run_time = self.last_run_time or time.time()
+                selected_snapshot = {
+                    'created_at_ts': run_time,
+                    'mode': self.last_mode,
+                    'charge_rate_w': self.last_charge_rate,
+                    'soc_percent': self.last_SOC if self.last_SOC >= 0 else None,
+                    'stored_energy_wh': self.last_stored_energy if self.last_stored_energy >= 0 else None,
+                    'reserved_energy_wh': self.last_reserved_energy if self.last_reserved_energy >= 0 else None,
+                    'free_capacity_wh': self.last_free_capacity if self.last_free_capacity >= 0 else None,
+                    'prices': self.last_prices,
+                    'production': self.last_production,
+                    'consumption': self.last_consumption,
+                    'net_consumption': self.last_net_consumption,
+                    'metadata': {
+                        'interval_minutes': self.time_resolution,
+                        'mode_label': self._format_mode(self.last_mode),
+                    },
+                }
+            if not timeline_entries:
+                timeline_entries = [{
+                    'created_at_ts': selected_snapshot['created_at_ts'],
+                    'mode': selected_snapshot['mode'],
+                    'charge_rate_w': selected_snapshot['charge_rate_w'],
+                    'soc_percent': selected_snapshot['soc_percent'],
+                }]
+
+        run_time = selected_snapshot['created_at_ts']
 
         def _history_points(key: str) -> List[Dict]:
             points = []
             for entry in history_entries:
+                if entry.get(key) is None:
+                    continue
                 point_time = datetime.datetime.fromtimestamp(
-                    int(entry['timestamp']),
+                    int(entry['created_at_ts']),
                     tz=self.timezone,
                 )
                 points.append({
-                    'timestamp': int(entry['timestamp']),
+                    'timestamp': int(entry['created_at_ts']),
                     'iso': point_time.isoformat(),
                     'value': entry[key],
                 })
@@ -1092,47 +1110,61 @@ class Batcontrol:
 
         return {
             'generated_at': datetime.datetime.fromtimestamp(
-                run_time,
+                time.time(),
                 tz=self.timezone,
             ).isoformat(),
             'timezone': str(self.timezone),
+            'selected_run': format_timepoint(run_time, self.timezone),
+            'timeline': [
+                dict(
+                    format_timepoint(entry['created_at_ts'], self.timezone),
+                    mode_label=self._format_mode(entry.get('mode')),
+                    soc_percent=entry.get('soc_percent'),
+                    charge_rate_w=entry.get('charge_rate_w'),
+                )
+                for entry in timeline_entries
+            ],
             'status': {
-                'soc_percent': soc,
-                'mode': mode,
-                'mode_label': self._format_mode(mode),
-                'charge_rate_w': charge_rate,
-                'stored_energy_wh': stored_energy,
-                'reserved_energy_wh': reserved_energy,
+                'soc_percent': selected_snapshot.get('soc_percent'),
+                'mode': selected_snapshot.get('mode'),
+                'mode_label': self._format_mode(selected_snapshot.get('mode')),
+                'charge_rate_w': selected_snapshot.get('charge_rate_w'),
+                'stored_energy_wh': selected_snapshot.get('stored_energy_wh'),
+                'reserved_energy_wh': selected_snapshot.get('reserved_energy_wh'),
                 'interval_minutes': self.time_resolution,
             },
             'today': {
                 'load_profile': build_forecast_series(
-                    consumption,
+                    selected_snapshot.get('consumption'),
                     run_time,
                     self.time_resolution,
                     self.timezone,
                 ),
                 'pv_forecast': build_forecast_series(
-                    production,
+                    selected_snapshot.get('production'),
                     run_time,
                     self.time_resolution,
                     self.timezone,
                 ),
                 'prices': build_forecast_series(
-                    prices,
+                    selected_snapshot.get('prices'),
                     run_time,
                     self.time_resolution,
                     self.timezone,
                 ),
             },
             'history': {
-                'soc': _history_points('soc'),
+                'soc': _history_points('soc_percent'),
                 'production': _history_points('production'),
                 'consumption': _history_points('consumption'),
             },
+            'sources': {
+                'prices': self._format_source_snapshot(price_source),
+                'solar_forecast': self._format_source_snapshot(solar_source),
+            },
             'history_note': (
-                'Historical production/consumption reflects interval snapshots '
-                'recorded by batcontrol from the time this dashboard is enabled.'
+                'The slider selects a stored calculation run from SQLite. '
+                'Charts update to the forecasts saved for that run.'
             ),
         }
 
@@ -1147,3 +1179,17 @@ class Batcontrol:
             None: 'n/a',
         }
         return mode_names.get(mode, f'Unknown ({mode})')
+
+    def _format_source_snapshot(self, source_snapshot) -> Dict:
+        """Convert source update metadata for the dashboard."""
+        if source_snapshot is None:
+            return {}
+
+        return {
+            'updated_at': datetime.datetime.fromtimestamp(
+                source_snapshot['created_at_ts'],
+                tz=self.timezone,
+            ).isoformat(),
+            'provider': source_snapshot.get('provider'),
+            'source_name': source_snapshot.get('source_name'),
+        }

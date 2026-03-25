@@ -70,6 +70,49 @@ def test_data_recorder_persists_rows(tmp_path):
     assert calc_count == 1
 
 
+def test_data_recorder_can_query_snapshot_and_timeline(tmp_path):
+    """Recorder should return timeline and historical snapshots for the dashboard."""
+    db_path = tmp_path / 'timeline.sqlite3'
+    recorder = DataRecorder(str(db_path))
+
+    recorder.record_calculation(
+        created_at_ts=1000.0,
+        mode=10,
+        charge_rate_w=0,
+        soc_percent=50.0,
+        stored_energy_wh=5000,
+        reserved_energy_wh=2000,
+        free_capacity_wh=3000,
+        prices=[0.21],
+        production=[400],
+        consumption=[600],
+        net_consumption=[200],
+    )
+    recorder.record_calculation(
+        created_at_ts=2000.0,
+        mode=-1,
+        charge_rate_w=1000,
+        soc_percent=60.0,
+        stored_energy_wh=6000,
+        reserved_energy_wh=2500,
+        free_capacity_wh=2500,
+        prices=[0.18],
+        production=[500],
+        consumption=[550],
+        net_consumption=[50],
+    )
+
+    timeline = recorder.get_calculation_timeline()
+    snapshot = recorder.get_calculation_snapshot(1500.0)
+    history = recorder.get_history_series()
+
+    assert len(timeline) == 2
+    assert snapshot['created_at_ts'] == 1000.0
+    assert snapshot['prices'] == [0.21]
+    assert len(history) == 2
+    assert history[1]['production'] == 500
+
+
 def test_tariff_refresh_records_source_update(tmp_path):
     """Tariff refresh should write one source update when a recorder is attached."""
     db_path = tmp_path / 'tariff.sqlite3'

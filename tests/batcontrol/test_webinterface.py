@@ -7,7 +7,8 @@ import numpy as np
 import pytz
 
 from batcontrol.core import Batcontrol, MODE_FORCE_CHARGING
-from batcontrol.webinterface import DashboardHistory, align_timestamp, build_forecast_series
+from batcontrol.datastore import DataRecorder
+from batcontrol.webinterface import align_timestamp, build_forecast_series
 
 
 def test_align_timestamp_uses_interval_start():
@@ -20,20 +21,31 @@ def test_align_timestamp_uses_interval_start():
     assert timestamp - aligned < 15 * 60
 
 
-def test_dashboard_history_replaces_same_interval_and_prunes(tmp_path):
-    """History should upsert within one interval and prune old points."""
-    history_file = tmp_path / "history.jsonl"
-    history = DashboardHistory(str(history_file), interval_minutes=60, retention_days=1)
+def test_data_recorder_history_series_uses_calculation_rows(tmp_path):
+    """Dashboard history should be derived from stored calculation runs."""
+    db_path = tmp_path / "history.sqlite3"
+    recorder = DataRecorder(str(db_path))
 
-    history.record(timestamp=3600, soc=60, production=1000, consumption=700)
-    history.record(timestamp=4200, soc=61, production=1100, consumption=650)
-    history.record(timestamp=3600 + 2 * 24 * 3600, soc=55, production=900, consumption=800)
+    recorder.record_calculation(
+        created_at_ts=3600,
+        mode=10,
+        charge_rate_w=0,
+        soc_percent=60,
+        stored_energy_wh=6000,
+        reserved_energy_wh=1000,
+        free_capacity_wh=3000,
+        prices=[0.2],
+        production=[1000],
+        consumption=[700],
+        net_consumption=[-300],
+    )
 
-    entries = history.get_entries()
+    entries = recorder.get_history_series()
 
     assert len(entries) == 1
-    assert entries[0]["timestamp"] == 3600 + 2 * 24 * 3600
-    assert entries[0]["soc"] == 55.0
+    assert entries[0]["created_at_ts"] == 3600
+    assert entries[0]["soc_percent"] == 60
+    assert entries[0]["production"] == 1000
 
 
 def test_build_forecast_series_aligns_points_to_interval():
@@ -101,16 +113,33 @@ def test_batcontrol_dashboard_snapshot(
         bc.last_reserved_energy = 2100
         bc.last_charge_rate = 1800
         bc.last_mode = MODE_FORCE_CHARGING
-        bc.dashboard_history = DashboardHistory(
-            str(tmp_path / 'dashboard-history.jsonl'),
-            interval_minutes=60,
-            retention_days=7,
+        bc.data_recorder = DataRecorder(str(tmp_path / 'dashboard.sqlite3'))
+        bc.data_recorder.record_source_update(
+            source_type='prices',
+            provider='DummyTariff',
+            raw_data={'prices': [0.21, 0.24]},
+            normalized_data={0: 0.21, 1: 0.24},
+            created_at_ts=bc.last_run_time,
         )
-        bc.dashboard_history.record(
-            bc.last_run_time,
-            soc=bc.last_SOC,
-            production=bc.last_production[0],
-            consumption=bc.last_consumption[0],
+        bc.data_recorder.record_source_update(
+            source_type='solar_forecast',
+            provider='DummySolar',
+            raw_data={'production': [1200.0, 1500.0]},
+            normalized_data={0: 1200.0, 1: 1500.0},
+            created_at_ts=bc.last_run_time,
+        )
+        bc.data_recorder.record_calculation(
+            created_at_ts=bc.last_run_time,
+            mode=bc.last_mode,
+            charge_rate_w=bc.last_charge_rate,
+            soc_percent=bc.last_SOC,
+            stored_energy_wh=bc.last_stored_energy,
+            reserved_energy_wh=bc.last_reserved_energy,
+            free_capacity_wh=3200,
+            prices=bc.last_prices,
+            production=bc.last_production,
+            consumption=bc.last_consumption,
+            net_consumption=bc.last_consumption - bc.last_production,
         )
 
         snapshot = bc.get_dashboard_snapshot()
@@ -119,7 +148,9 @@ def test_batcontrol_dashboard_snapshot(
         assert len(snapshot['today']['load_profile']) == 2
         assert len(snapshot['today']['pv_forecast']) == 2
         assert len(snapshot['today']['prices']) == 2
+        assert len(snapshot['timeline']) == 1
         assert len(snapshot['history']['soc']) == 1
         assert snapshot['history']['production'][0]['value'] == 1200.0
+        assert snapshot['sources']['prices']['provider'] == 'DummyTariff'
     finally:
         bc.shutdown()
