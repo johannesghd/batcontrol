@@ -315,7 +315,45 @@ def _build_dashboard_html(title: str) -> str:
       box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-load) 18%, transparent);
     }}
     .timeline-slider {{
-      margin-top: 6px;
+      margin-top: 4px;
+      width: 100%;
+      margin-left: 0;
+      margin-right: 0;
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+    }}
+    .timeline-slider::-webkit-slider-runnable-track {{
+      height: 4px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--muted) 35%, transparent);
+    }}
+    .timeline-slider::-webkit-slider-thumb {{
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      margin-top: -5px;
+      background: var(--accent-load);
+      border: 2px solid color-mix(in srgb, var(--panel-strong) 90%, transparent);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-load) 18%, transparent);
+    }}
+    .timeline-slider::-moz-range-track {{
+      height: 4px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--muted) 35%, transparent);
+    }}
+    .timeline-slider::-moz-range-thumb {{
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: var(--accent-load);
+      border: 2px solid color-mix(in srgb, var(--panel-strong) 90%, transparent);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-load) 18%, transparent);
+    }}
+    .timeline-slider:disabled {{
+      opacity: 0.45;
     }}
     .slider-meta {{
       display: flex;
