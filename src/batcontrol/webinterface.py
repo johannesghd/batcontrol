@@ -270,6 +270,53 @@ def _build_dashboard_html(title: str) -> str:
       gap: 10px;
       margin-top: 18px;
     }}
+    .timeline-wrap {{
+      position: relative;
+      padding: 0 58px;
+      margin-top: 18px;
+    }}
+    .timeline-axis {{
+      position: relative;
+      height: 28px;
+    }}
+    .timeline-line {{
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 8px;
+      height: 2px;
+      background: var(--grid);
+      border-radius: 999px;
+    }}
+    .timeline-tick {{
+      position: absolute;
+      top: 0;
+      transform: translateX(-50%);
+      width: 14px;
+      height: 18px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      padding: 0;
+    }}
+    .timeline-tick::before {{
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 7px;
+      transform: translateX(-50%);
+      width: 2px;
+      height: 11px;
+      border-radius: 999px;
+      background: var(--muted);
+    }}
+    .timeline-tick.active::before {{
+      background: var(--accent-load);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-load) 18%, transparent);
+    }}
+    .timeline-slider {{
+      margin-top: 6px;
+    }}
     .slider-meta {{
       display: flex;
       justify-content: space-between;
@@ -373,9 +420,12 @@ def _build_dashboard_html(title: str) -> str:
         <span><i style="background: var(--accent-cons);"></i>Consumption W</span>
       </div>
       <div id="history-chart"></div>
-      <div class="slider-row" style="margin-top:18px;">
-        <div id="timeline-ticks" style="position:relative;height:18px;"></div>
-        <input id="timeline-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+      <div class="timeline-wrap">
+        <div class="timeline-axis">
+          <div class="timeline-line"></div>
+          <div id="timeline-ticks"></div>
+        </div>
+        <input class="timeline-slider" id="timeline-slider" type="range" min="0" max="0" value="0" step="1" disabled>
       </div>
       <div class="footer">
         <span id="refresh-info">Not loaded yet</span>
@@ -477,8 +527,8 @@ def _build_dashboard_html(title: str) -> str:
         return {{ min, max }};
       }}
 
-      const leftBounds = getBounds(leftValues, !!options.leftIncludeZero);
-      const rightBounds = getBounds(rightValues);
+      const leftBounds = options.leftBounds || getBounds(leftValues, !!options.leftIncludeZero);
+      const rightBounds = options.rightBounds || getBounds(rightValues);
       const leftSpan = Math.max(leftBounds.max - leftBounds.min, 1);
       const rightSpan = Math.max(rightBounds.max - rightBounds.min, 1);
 
@@ -580,22 +630,11 @@ def _build_dashboard_html(title: str) -> str:
         return `
           <button
             type="button"
+            class="timeline-tick${{active ? ' active' : ''}}"
             data-index="${{index}}"
             title="${{item.label}}"
             aria-label="Select run ${{item.label}}"
-            style="
-              position:absolute;
-              left:${{left}}%;
-              top:0;
-              transform:translateX(-50%);
-              width:${{active ? 14 : 10}}px;
-              height:${{active ? 14 : 10}}px;
-              border-radius:999px;
-              border:0;
-              cursor:pointer;
-              background:${{active ? 'var(--accent-load)' : 'var(--muted)'}};
-              box-shadow:${{active ? '0 0 0 4px color-mix(in srgb, var(--accent-load) 20%, transparent)' : 'none'}};
-            "></button>
+            style="left:${{left}}%;"></button>
         `;
       }}).join('');
       ticks.querySelectorAll('button').forEach((button) => {{
@@ -662,12 +701,15 @@ def _build_dashboard_html(title: str) -> str:
         rightYDigits: 2,
       }});
       renderChart('history-chart', [
-        {{ color: COLORS.soc, points: data.history.soc }},
+        {{ color: COLORS.soc, points: data.history.soc, axis: 'right' }},
         {{ color: COLORS.production, points: data.history.production }},
         {{ color: COLORS.consumption, points: data.history.consumption }},
       ], {{
         selectedTimestamp: data.selected_run ? data.selected_run.timestamp : null,
         yDigits: 0,
+        rightAxis: true,
+        rightYDigits: 0,
+        rightBounds: {{ min: 0, max: 100 }},
       }});
     }}
 
