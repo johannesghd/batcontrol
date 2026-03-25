@@ -155,32 +155,52 @@ def _build_dashboard_html(title: str) -> str:
   <title>{escaped_title}</title>
   <style>
     :root {{
-      --bg: #f5efe4;
-      --panel: rgba(255, 251, 244, 0.84);
-      --ink: #1f2a2d;
-      --muted: #5e6b68;
-      --grid: rgba(31, 42, 45, 0.12);
-      --accent-load: #14532d;
-      --accent-pv: #d97706;
-      --accent-price: #0f766e;
-      --accent-soc: #1d4ed8;
-      --accent-prod: #b45309;
-      --accent-cons: #166534;
-      --shadow: 0 18px 48px rgba(49, 41, 29, 0.12);
+      --bg: #f4f7fb;
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-strong: rgba(255, 255, 255, 0.92);
+      --ink: #15202b;
+      --muted: #5d6b7a;
+      --grid: rgba(21, 32, 43, 0.12);
+      --accent-load: #2f6fed;
+      --accent-pv: #f59e0b;
+      --accent-net: #14b8a6;
+      --accent-price: #ef4444;
+      --accent-soc: #8b5cf6;
+      --accent-prod: #f97316;
+      --accent-cons: #10b981;
+      --shadow: 0 20px 60px rgba(23, 34, 56, 0.14);
       --radius: 24px;
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #0b1220;
+        --panel: rgba(17, 24, 39, 0.72);
+        --panel-strong: rgba(17, 24, 39, 0.9);
+        --ink: #e5edf6;
+        --muted: #9fb0c4;
+        --grid: rgba(159, 176, 196, 0.16);
+        --accent-load: #7fb0ff;
+        --accent-pv: #fbbf24;
+        --accent-net: #2dd4bf;
+        --accent-price: #fb7185;
+        --accent-soc: #a78bfa;
+        --accent-prod: #fb923c;
+        --accent-cons: #34d399;
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+      }}
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.18), transparent 28%),
-        radial-gradient(circle at top right, rgba(20, 83, 45, 0.14), transparent 24%),
-        linear-gradient(180deg, #f8f3ea 0%, #efe5d4 100%);
-      font-family: Georgia, "Times New Roman", serif;
+        radial-gradient(circle at top left, rgba(47, 111, 237, 0.18), transparent 26%),
+        radial-gradient(circle at top right, rgba(245, 158, 11, 0.16), transparent 24%),
+        linear-gradient(180deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 85%, #dbe7f5) 100%);
+      font-family: "Inter", "Segoe UI", sans-serif;
     }}
     .shell {{
-      max-width: 1280px;
+      max-width: 1400px;
       margin: 0 auto;
       padding: 24px;
     }}
@@ -192,8 +212,8 @@ def _build_dashboard_html(title: str) -> str:
     }}
     .panel {{
       background: var(--panel);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(16px);
+      border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
       padding: 22px;
@@ -204,6 +224,7 @@ def _build_dashboard_html(title: str) -> str:
       line-height: 0.94;
       letter-spacing: -0.04em;
       margin-bottom: 10px;
+      font-weight: 800;
     }}
     .subtle {{
       color: var(--muted);
@@ -218,7 +239,7 @@ def _build_dashboard_html(title: str) -> str:
     }}
     .stat {{
       padding: 14px 16px;
-      background: rgba(255, 255, 255, 0.58);
+      background: var(--panel-strong);
       border-radius: 16px;
     }}
     .stat-label {{
@@ -231,18 +252,18 @@ def _build_dashboard_html(title: str) -> str:
       font-weight: 700;
       letter-spacing: -0.04em;
     }}
-    .chart-grid {{
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 18px;
-      margin-bottom: 18px;
-    }}
     .full-width {{ margin-bottom: 18px; }}
     .chart-card h2 {{
       font-size: 1.05rem;
       margin-bottom: 14px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
+    }}
+    .chart-card.lead {{
+      padding: 26px;
+    }}
+    .chart-card.lead svg {{
+      height: 380px;
     }}
     .slider-row {{
       display: grid;
@@ -259,6 +280,7 @@ def _build_dashboard_html(title: str) -> str:
     }}
     input[type="range"] {{
       width: 100%;
+      accent-color: var(--accent-load);
     }}
     .legend {{
       display: flex;
@@ -301,8 +323,11 @@ def _build_dashboard_html(title: str) -> str:
       text-align: center;
     }}
     @media (max-width: 980px) {{
-      .hero, .chart-grid {{
+      .hero {{
         grid-template-columns: 1fr;
+      }}
+      .chart-card.lead svg {{
+        height: 300px;
       }}
     }}
   </style>
@@ -312,7 +337,7 @@ def _build_dashboard_html(title: str) -> str:
     <section class="hero">
       <div class="panel">
         <p class="subtle">Battery control dashboard</p>
-        <h1>Forecasts, prices, and historical runs from SQLite.</h1>
+        <h1>Forecasts, prices, and net demand in one view.</h1>
         <p class="subtle" id="summary">Waiting for batcontrol data…</p>
         <div class="slider-row">
           <input id="timeline-slider" type="range" min="0" max="0" value="0" step="1" disabled>
@@ -328,18 +353,18 @@ def _build_dashboard_html(title: str) -> str:
       </div>
     </section>
 
-    <section class="chart-grid">
-      <div class="panel chart-card">
-        <h2>Load Profile</h2>
-        <div id="load-chart"></div>
+    <section class="panel chart-card lead full-width">
+      <h2>Combined Forecast Window</h2>
+      <div class="legend">
+        <span><i style="background: var(--accent-load);"></i>Consumption</span>
+        <span><i style="background: var(--accent-pv);"></i>PV forecast</span>
+        <span><i style="background: var(--accent-net);"></i>Net consumption</span>
+        <span><i style="background: var(--accent-price);"></i>Price</span>
       </div>
-      <div class="panel chart-card">
-        <h2>PV Forecast</h2>
-        <div id="pv-chart"></div>
-      </div>
-      <div class="panel chart-card">
-        <h2>Prices</h2>
-        <div id="price-chart"></div>
+      <div id="combined-chart"></div>
+      <div class="footer">
+        <span>Left axis: power / energy flow</span>
+        <span>Right axis: price</span>
       </div>
     </section>
 
@@ -362,6 +387,7 @@ def _build_dashboard_html(title: str) -> str:
     const COLORS = {{
       load: getCss('--accent-load'),
       pv: getCss('--accent-pv'),
+      net: getCss('--accent-net'),
       price: getCss('--accent-price'),
       soc: getCss('--accent-soc'),
       production: getCss('--accent-prod'),
@@ -416,37 +442,67 @@ def _build_dashboard_html(title: str) -> str:
         return;
       }}
 
-      const width = 880;
+      const width = 1080;
       const height = options.height || 260;
-      const pad = {{ top: 12, right: 16, bottom: 34, left: 54 }};
+      const pad = {{
+        top: 16,
+        right: options.rightAxis ? 58 : 18,
+        bottom: 36,
+        left: 58
+      }};
       const points = series.flatMap(item => item.points);
-      const values = points.map(point => point.value);
-      let minY = Math.min(...values);
-      let maxY = Math.max(...values);
-      if (minY === maxY) {{
-        minY -= 1;
-        maxY += 1;
-      }}
       const times = points.map(point => point.timestamp);
       const minX = Math.min(...times);
       const maxX = Math.max(...times);
       const xSpan = Math.max(maxX - minX, 1);
-      const ySpan = Math.max(maxY - minY, 1);
+
+      const leftSeries = series.filter(item => item.axis !== 'right');
+      const rightSeries = series.filter(item => item.axis === 'right');
+      const leftValues = leftSeries.flatMap(item => item.points.map(point => point.value));
+      const rightValues = rightSeries.flatMap(item => item.points.map(point => point.value));
+
+      function getBounds(values, includeZero = false) {{
+        if (!values.length) return {{ min: 0, max: 1 }};
+        let min = Math.min(...values);
+        let max = Math.max(...values);
+        if (includeZero) {{
+          min = Math.min(min, 0);
+          max = Math.max(max, 0);
+        }}
+        if (min === max) {{
+          min -= 1;
+          max += 1;
+        }}
+        return {{ min, max }};
+      }}
+
+      const leftBounds = getBounds(leftValues, !!options.leftIncludeZero);
+      const rightBounds = getBounds(rightValues);
+      const leftSpan = Math.max(leftBounds.max - leftBounds.min, 1);
+      const rightSpan = Math.max(rightBounds.max - rightBounds.min, 1);
 
       function xScale(ts) {{
         return pad.left + ((ts - minX) / xSpan) * (width - pad.left - pad.right);
       }}
 
-      function yScale(value) {{
-        return height - pad.bottom - ((value - minY) / ySpan) * (height - pad.top - pad.bottom);
+      function yScaleLeft(value) {{
+        return height - pad.bottom - ((value - leftBounds.min) / leftSpan) * (height - pad.top - pad.bottom);
+      }}
+
+      function yScaleRight(value) {{
+        return height - pad.bottom - ((value - rightBounds.min) / rightSpan) * (height - pad.top - pad.bottom);
       }}
 
       let svg = `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="chart">`;
       for (let i = 0; i <= 4; i += 1) {{
-        const yValue = minY + (ySpan / 4) * i;
-        const y = yScale(yValue);
+        const yValue = leftBounds.min + (leftSpan / 4) * i;
+        const y = yScaleLeft(yValue);
         svg += `<line x1="${{pad.left}}" y1="${{y}}" x2="${{width - pad.right}}" y2="${{y}}" stroke="${{COLORS.grid}}" stroke-width="1" />`;
         svg += `<text x="${{pad.left - 8}}" y="${{y + 4}}" text-anchor="end" font-size="12" fill="${{COLORS.muted}}">${{fmtNumber(yValue, options.yDigits ?? 0)}}</text>`;
+        if (options.rightAxis && rightValues.length) {{
+          const rightValue = rightBounds.min + (rightSpan / 4) * i;
+          svg += `<text x="${{width - pad.right + 8}}" y="${{y + 4}}" text-anchor="start" font-size="12" fill="${{COLORS.muted}}">${{fmtNumber(rightValue, options.rightYDigits ?? 3)}}</text>`;
+        }}
       }}
 
       const tickCount = Math.min(6, points.length);
@@ -460,8 +516,10 @@ def _build_dashboard_html(title: str) -> str:
 
       series.forEach(item => {{
         if (!item.points.length) return;
+        const yScale = item.axis === 'right' ? yScaleRight : yScaleLeft;
         const path = item.points.map((point, index) => `${{index === 0 ? 'M' : 'L'}} ${{xScale(point.timestamp)}} ${{yScale(point.value)}}`).join(' ');
-        svg += `<path d="${{path}}" fill="none" stroke="${{item.color}}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`;
+        const dash = item.dash ? ` stroke-dasharray="${{item.dash}}"` : '';
+        svg += `<path d="${{path}}" fill="none" stroke="${{item.color}}" stroke-width="3"${{dash}} stroke-linejoin="round" stroke-linecap="round"/>`;
       }});
 
       if (options.selectedTimestamp) {{
@@ -535,9 +593,18 @@ def _build_dashboard_html(title: str) -> str:
       document.getElementById('history-note').textContent =
         data.history_note || '';
 
-      renderChart('load-chart', series(data.today.load_profile, COLORS.load));
-      renderChart('pv-chart', series(data.today.pv_forecast, COLORS.pv));
-      renderChart('price-chart', series(data.today.prices, COLORS.price), {{ yDigits: 3 }});
+      renderChart('combined-chart', [
+        {{ color: COLORS.load, points: data.today.load_profile }},
+        {{ color: COLORS.pv, points: data.today.pv_forecast }},
+        {{ color: COLORS.net, points: data.today.net_consumption, dash: '8 6' }},
+        {{ color: COLORS.price, points: data.today.prices, axis: 'right' }},
+      ], {{
+        height: 380,
+        leftIncludeZero: true,
+        rightAxis: true,
+        yDigits: 0,
+        rightYDigits: 3,
+      }});
       renderChart('history-chart', [
         {{ color: COLORS.soc, points: data.history.soc }},
         {{ color: COLORS.production, points: data.history.production }},

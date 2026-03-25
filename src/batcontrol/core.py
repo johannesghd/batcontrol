@@ -1156,6 +1156,12 @@ class Batcontrol:
                     self.time_resolution,
                     self.timezone,
                 ),
+                'net_consumption': build_forecast_series(
+                    selected_snapshot.get('net_consumption'),
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
             },
             'history': {
                 'soc': _history_points('soc_percent'),
