@@ -339,12 +339,9 @@ def _build_dashboard_html(title: str) -> str:
         <p class="subtle">Battery control dashboard</p>
         <h1>Forecasts, prices, and net demand in one view.</h1>
         <p class="subtle" id="summary">Waiting for batcontrol data…</p>
-        <div class="slider-row">
-          <input id="timeline-slider" type="range" min="0" max="0" value="0" step="1" disabled>
-          <div class="slider-meta">
-            <span id="selected-run">No historical runs available.</span>
-            <span id="source-updates"></span>
-          </div>
+        <div class="slider-meta" style="margin-top:18px;">
+          <span id="selected-run">No historical runs available.</span>
+          <span id="source-updates"></span>
         </div>
       </div>
       <div class="panel">
@@ -376,6 +373,10 @@ def _build_dashboard_html(title: str) -> str:
         <span><i style="background: var(--accent-cons);"></i>Consumption W</span>
       </div>
       <div id="history-chart"></div>
+      <div class="slider-row" style="margin-top:18px;">
+        <div id="timeline-ticks" style="position:relative;height:18px;"></div>
+        <input id="timeline-slider" type="range" min="0" max="0" value="0" step="1" disabled>
+      </div>
       <div class="footer">
         <span id="refresh-info">Not loaded yet</span>
         <span id="history-note">Move the slider to inspect how stored forecasts changed over time.</span>
@@ -517,7 +518,9 @@ def _build_dashboard_html(title: str) -> str:
       series.forEach(item => {{
         if (!item.points.length) return;
         const yScale = item.axis === 'right' ? yScaleRight : yScaleLeft;
-        const path = item.points.map((point, index) => `${{index === 0 ? 'M' : 'L'}} ${{xScale(point.timestamp)}} ${{yScale(point.value)}}`).join(' ');
+        const path = item.step
+          ? buildStepPath(item.points, xScale, yScale)
+          : item.points.map((point, index) => `${{index === 0 ? 'M' : 'L'}} ${{xScale(point.timestamp)}} ${{yScale(point.value)}}`).join(' ');
         const dash = item.dash ? ` stroke-dasharray="${{item.dash}}"` : '';
         svg += `<path d="${{path}}" fill="none" stroke="${{item.color}}" stroke-width="3"${{dash}} stroke-linejoin="round" stroke-linecap="round"/>`;
       }});
@@ -535,13 +538,27 @@ def _build_dashboard_html(title: str) -> str:
       return [{{ color, points }}];
     }}
 
+    function buildStepPath(points, xScale, yScale) {{
+      if (!points.length) return '';
+      let path = `M ${{xScale(points[0].timestamp)}} ${{yScale(points[0].value)}}`;
+      for (let i = 1; i < points.length; i += 1) {{
+        const prev = points[i - 1];
+        const current = points[i];
+        path += ` L ${{xScale(current.timestamp)}} ${{yScale(prev.value)}}`;
+        path += ` L ${{xScale(current.timestamp)}} ${{yScale(current.value)}}`;
+      }}
+      return path;
+    }}
+
     function updateSlider() {{
       const slider = document.getElementById('timeline-slider');
+      const ticks = document.getElementById('timeline-ticks');
       if (!timeline.length) {{
         slider.disabled = true;
         slider.min = 0;
         slider.max = 0;
         slider.value = 0;
+        ticks.innerHTML = '';
         return;
       }}
 
@@ -549,6 +566,38 @@ def _build_dashboard_html(title: str) -> str:
       slider.min = 0;
       slider.max = timeline.length - 1;
       slider.value = selectedIndex ?? timeline.length - 1;
+      const denominator = Math.max(timeline.length - 1, 1);
+      ticks.innerHTML = timeline.map((item, index) => {{
+        const left = (index / denominator) * 100;
+        const active = index === Number(slider.value);
+        return `
+          <button
+            type="button"
+            data-index="${{index}}"
+            title="${{item.label}}"
+            aria-label="Select run ${{item.label}}"
+            style="
+              position:absolute;
+              left:${{left}}%;
+              top:0;
+              transform:translateX(-50%);
+              width:${{active ? 14 : 10}}px;
+              height:${{active ? 14 : 10}}px;
+              border-radius:999px;
+              border:0;
+              cursor:pointer;
+              background:${{active ? 'var(--accent-load)' : 'var(--muted)'}};
+              box-shadow:${{active ? '0 0 0 4px color-mix(in srgb, var(--accent-load) 20%, transparent)' : 'none'}};
+            "></button>
+        `;
+      }}).join('');
+      ticks.querySelectorAll('button').forEach((button) => {{
+        button.addEventListener('click', async () => {{
+          const index = Number(button.dataset.index);
+          if (!timeline[index]) return;
+          await render(timeline[index].timestamp);
+        }});
+      }});
     }}
 
     function formatSourceUpdates(sources) {{
@@ -597,7 +646,7 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.load, points: data.today.load_profile }},
         {{ color: COLORS.pv, points: data.today.pv_forecast }},
         {{ color: COLORS.net, points: data.today.net_consumption, dash: '8 6' }},
-        {{ color: COLORS.price, points: data.today.prices, axis: 'right' }},
+        {{ color: COLORS.price, points: data.today.prices, axis: 'right', step: true }},
       ], {{
         height: 380,
         leftIncludeZero: true,
