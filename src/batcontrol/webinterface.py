@@ -360,8 +360,8 @@ def _build_dashboard_html(title: str) -> str:
       </div>
       <div id="combined-chart"></div>
       <div class="footer">
-        <span>Left axis: power / energy flow</span>
-        <span>Right axis: price</span>
+        <span>Left axis: W</span>
+        <span>Right axis: ct/kWh</span>
       </div>
     </section>
 
@@ -538,6 +538,13 @@ def _build_dashboard_html(title: str) -> str:
       return [{{ color, points }}];
     }}
 
+    function transformSeries(points, factor = 1) {{
+      return (points || []).map((point) => ({{
+        ...point,
+        value: point.value * factor,
+      }}));
+    }}
+
     function buildStepPath(points, xScale, yScale) {{
       if (!points.length) return '';
       let path = `M ${{xScale(points[0].timestamp)}} ${{yScale(points[0].value)}}`;
@@ -646,13 +653,13 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.load, points: data.today.load_profile }},
         {{ color: COLORS.pv, points: data.today.pv_forecast }},
         {{ color: COLORS.net, points: data.today.net_consumption, dash: '8 6' }},
-        {{ color: COLORS.price, points: data.today.prices, axis: 'right', step: true }},
+        {{ color: COLORS.price, points: transformSeries(data.today.prices, 100), axis: 'right', step: true }},
       ], {{
         height: 380,
         leftIncludeZero: true,
         rightAxis: true,
         yDigits: 0,
-        rightYDigits: 3,
+        rightYDigits: 2,
       }});
       renderChart('history-chart', [
         {{ color: COLORS.soc, points: data.history.soc }},
