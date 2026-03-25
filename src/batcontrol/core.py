@@ -15,6 +15,7 @@ import time
 import os
 import logging
 import platform
+import sqlite3
 import threading
 from typing import Dict, List, Optional
 
@@ -34,6 +35,7 @@ from .inverter import Inverter as inverter_factory
 from .forecastsolar import ForecastSolar as solar_factory
 
 from .forecastconsumption import Consumption as consumption_factory
+from .datastore import DataRecorder
 from .webinterface import DashboardHistory, DashboardServer, build_forecast_series
 
 ERROR_IGNORE_TIME = 600  # 10 Minutes
@@ -91,6 +93,7 @@ class Batcontrol:
         self._dashboard_lock = threading.RLock()
         self.dashboard_history = None
         self.dashboard_server = None
+        self.data_recorder = None
 
         self.config = configdict
         config = configdict
@@ -193,6 +196,7 @@ class Batcontrol:
             config['consumption_forecast'],
             target_resolution=self.time_resolution
         )
+        self._init_data_recorder(config)
 
         self.batconfig = config['battery_control']
         self.time_at_forecast_error = -1
@@ -477,6 +481,8 @@ class Batcontrol:
                 'Next evaluation in %.0f seconds',
                 TIME_BETWEEN_EVALUATIONS
             )
+            self._record_calculation_snapshot(
+                production, consumption, net_consumption, prices)
             self.api_overwrite = False
             return
 
@@ -537,6 +543,8 @@ class Batcontrol:
         if not this_logic_run.calculate(calc_input):
             logger.error('Calculation failed. Falling back to discharge')
             self.allow_discharging()
+            self._record_calculation_snapshot(
+                production, consumption, net_consumption, prices)
             return
 
         calc_output = this_logic_run.get_calculation_output()
@@ -564,6 +572,9 @@ class Batcontrol:
             self.force_charge(inverter_settings.charge_rate)
         else:
             self.avoid_discharging()
+
+        self._record_calculation_snapshot(
+            production, consumption, net_consumption, prices)
 
     def __set_charge_rate(self, charge_rate: int):
         """ Set charge rate and publish to mqtt """
@@ -982,6 +993,55 @@ class Batcontrol:
                 port,
                 exc)
             self.dashboard_server = None
+
+    def _init_data_recorder(self, config: dict) -> None:
+        """Initialize optional SQLite recorder for source and run data."""
+        recorder_config = config.get('data_recorder') or {}
+        if not recorder_config.get('enabled', False):
+            return
+
+        db_path = recorder_config.get(
+            'path',
+            os.path.join('logs', 'batcontrol.sqlite3'))
+        try:
+            self.data_recorder = DataRecorder(db_path)
+        except (OSError, sqlite3.Error) as exc:
+            logger.error('Failed to initialize data recorder at %s: %s', db_path, exc)
+            self.data_recorder = None
+            return
+
+        if hasattr(self.dynamic_tariff, 'set_data_recorder'):
+            self.dynamic_tariff.set_data_recorder(self.data_recorder)
+        if hasattr(self.fc_solar, 'set_data_recorder'):
+            self.fc_solar.set_data_recorder(self.data_recorder)
+
+    def _record_calculation_snapshot(
+            self,
+            production,
+            consumption,
+            net_consumption,
+            prices) -> None:
+        """Persist one completed control-cycle snapshot."""
+        if self.data_recorder is None:
+            return
+
+        self.data_recorder.record_calculation(
+            created_at_ts=self.last_run_time,
+            mode=self.last_mode,
+            charge_rate_w=self.last_charge_rate,
+            soc_percent=self.get_SOC(),
+            stored_energy_wh=self.get_stored_energy(),
+            reserved_energy_wh=self.get_reserved_energy(),
+            free_capacity_wh=self.get_free_capacity(),
+            prices=prices,
+            production=production,
+            consumption=consumption,
+            net_consumption=net_consumption,
+            metadata={
+                'interval_minutes': self.time_resolution,
+                'mode_label': self._format_mode(self.last_mode),
+            },
+        )
 
     def _record_dashboard_history(self, production, consumption) -> None:
         """Persist one data point per active interval for dashboard history."""

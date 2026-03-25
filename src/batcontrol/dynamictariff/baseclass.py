@@ -64,6 +64,7 @@ class DynamicTariffBaseclass(TariffInterface):
         self.next_update_ts = 0
         self.cache = RelaxedCaching()
         self._refresh_data_lock = threading.Lock()
+        self.data_recorder = None
 
         logger.info(
             '%s: native_resolution=%d min, target_resolution=%d min',
@@ -85,6 +86,10 @@ class DynamicTariffBaseclass(TariffInterface):
         """Store raw data in cache."""
         self.cache.store_new_entry(data)
 
+    def set_data_recorder(self, data_recorder) -> None:
+        """Attach optional persistence for source updates."""
+        self.data_recorder = data_recorder
+
     def refresh_data(self) -> None:
         """Refresh data from provider if needed."""
         with self._refresh_data_lock:
@@ -98,7 +103,20 @@ class DynamicTariffBaseclass(TariffInterface):
                         sleeptime)
                     time.sleep(sleeptime)
                 try:
-                    self.store_raw_data(self.get_raw_data_from_provider())
+                    raw_data = self.get_raw_data_from_provider()
+                    self.store_raw_data(raw_data)
+                    if self.data_recorder is not None:
+                        self.data_recorder.record_source_update(
+                            source_type='prices',
+                            provider=self.__class__.__name__,
+                            raw_data=raw_data,
+                            normalized_data=self._get_prices_native(),
+                            metadata={
+                                'target_resolution_minutes': self.target_resolution,
+                                'native_resolution_minutes': self.native_resolution,
+                            },
+                            created_at_ts=now,
+                        )
                     self.next_update_ts = now + self.min_time_between_updates
                     self.schedule_next_refresh()
                 except (ConnectionError, TimeoutError) as e:

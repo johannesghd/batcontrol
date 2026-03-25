@@ -44,6 +44,7 @@ class ForecastSolarBaseclass(ForecastSolarInterface):
         self.cache_list = {}
         self.rate_limit_blackout_window_ts = 0
         self._refresh_data_lock = threading.Lock()
+        self.data_recorder = None
 
         # Resolution configuration
         self.target_resolution = target_resolution  # What core.py expects (15 or 60)
@@ -78,6 +79,10 @@ class ForecastSolarBaseclass(ForecastSolarInterface):
     def store_raw_data(self, pvinstallation_name, data: dict) -> None:
         """ Store raw data in cache """
         self.cache_list[pvinstallation_name].store_new_entry(data)
+
+    def set_data_recorder(self, data_recorder) -> None:
+        """Attach optional persistence for source updates."""
+        self.data_recorder = data_recorder
 
     def schedule_next_refresh(self) -> None:
         """ Schedule the next data refresh just after next_update_ts """
@@ -118,6 +123,21 @@ class ForecastSolarBaseclass(ForecastSolarInterface):
                             logger.warning(
                                 'Rate limit exceeded. Setting blackout window until %s',
                                 self.rate_limit_blackout_window_ts)
+                    if self.data_recorder is not None:
+                        self.data_recorder.record_source_update(
+                            source_type='solar_forecast',
+                            provider=self.__class__.__name__,
+                            raw_data=self.get_all_raw_data(),
+                            normalized_data=self.get_forecast_from_raw_data(),
+                            metadata={
+                                'target_resolution_minutes': self.target_resolution,
+                                'native_resolution_minutes': self.native_resolution,
+                                'installations': [
+                                    unit['name'] for unit in self.pvinstallations
+                                ],
+                            },
+                            created_at_ts=now,
+                        )
                     self.next_update_ts = now + self.min_time_between_updates
                     self.schedule_next_refresh()
                 except (ConnectionError, TimeoutError, ProviderError) as e:

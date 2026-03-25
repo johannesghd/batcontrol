@@ -186,6 +186,23 @@ The dashboard shows:
 
 Historical production and consumption begin accumulating from the moment the dashboard history is enabled.
 
+## Lightweight SQLite Recorder
+
+Batcontrol can also persist source updates and completed calculation cycles to a local SQLite database.
+
+```yaml
+data_recorder:
+  enabled: true
+  path: logs/batcontrol.sqlite3
+```
+
+When enabled, batcontrol stores:
+- Price source updates
+- Solar forecast source updates
+- Completed calculation runs including prices, production, consumption, SoC, and selected control mode
+
+The implementation is intentionally lightweight for edge devices: standard-library `sqlite3`, no ORM, no background worker, and writes only when data refreshes or a control cycle completes.
+
 # Docker usage
 
 ## Preparations

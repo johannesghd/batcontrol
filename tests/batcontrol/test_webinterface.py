@@ -63,6 +63,7 @@ def test_batcontrol_dashboard_snapshot(
     """Snapshot payload should expose forecast and history series."""
     mock_inverter = MagicMock()
     mock_inverter.get_max_capacity.return_value = 10000
+    mock_inverter.max_pv_charge_rate = 0
     mock_inverter_factory.return_value = mock_inverter
     mock_tariff.return_value = MagicMock()
     mock_solar.return_value = MagicMock()
