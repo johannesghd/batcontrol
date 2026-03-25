@@ -15,6 +15,8 @@ import time
 import os
 import logging
 import platform
+import threading
+from typing import Dict, List, Optional
 
 import pytz
 import numpy as np
@@ -32,6 +34,7 @@ from .inverter import Inverter as inverter_factory
 from .forecastsolar import ForecastSolar as solar_factory
 
 from .forecastconsumption import Consumption as consumption_factory
+from .webinterface import DashboardHistory, DashboardServer, build_forecast_series
 
 ERROR_IGNORE_TIME = 600  # 10 Minutes
 EVALUATIONS_EVERY_MINUTES = 3  # Every x minutes on the clock
@@ -85,6 +88,9 @@ class Batcontrol:
         self.last_run_time = 0
 
         self.last_logic_instance = None
+        self._dashboard_lock = threading.RLock()
+        self.dashboard_history = None
+        self.dashboard_server = None
 
         self.config = configdict
         config = configdict
@@ -317,10 +323,16 @@ class Batcontrol:
         except Exception as e:
             logger.error("Error during initial data fetch: %s", e)
 
+        self._init_dashboard(config)
+
     def shutdown(self):
         """ Shutdown Batcontrol and dependend modules (inverter..) """
         logger.info('Shutting down Batcontrol')
         try:
+            if self.dashboard_server is not None:
+                self.dashboard_server.stop()
+                self.dashboard_server = None
+
             # Stop scheduler thread
             if hasattr(self, 'scheduler') and self.scheduler is not None:
                 self.scheduler.stop()
@@ -456,6 +468,7 @@ class Batcontrol:
 
         # Store data for API
         self.__save_run_data(production, consumption, net_consumption, prices)
+        self._record_dashboard_history(production, consumption)
 
         # stop here if api_overwrite is set and reset it
         if self.api_overwrite:
@@ -628,10 +641,11 @@ class Batcontrol:
             net_consumption,
             prices):
         """ Save data for API """
-        self.last_production = production
-        self.last_consumption = consumption
-        self.last_net_consumption = net_consumption
-        self.last_prices = prices
+        with self._dashboard_lock:
+            self.last_production = production
+            self.last_consumption = consumption
+            self.last_net_consumption = net_consumption
+            self.last_prices = prices
         if self.mqtt_api is not None:
             self.mqtt_api.publish_production(production, self.last_run_time)
             self.mqtt_api.publish_consumption(consumption, self.last_run_time)
@@ -650,7 +664,8 @@ class Batcontrol:
     def get_SOC(self) -> float:  # pylint: disable=invalid-name
         """ Returns the SOC in % (0-100) , collects data from inverter """
         if not self.fetched_soc:
-            self.last_SOC = self.inverter.get_SOC()
+            with self._dashboard_lock:
+                self.last_SOC = self.inverter.get_SOC()
             # self.last_SOC = self.get_stored_energy() / self.get_max_capacity() * 100
             self.fetched_soc = True
         return self.last_SOC
@@ -658,7 +673,8 @@ class Batcontrol:
     def get_max_capacity(self) -> float:
         """ Returns capacity Wh of all batteries reduced by MAX_SOC """
         if not self.fetched_max_capacity:
-            self.last_max_capacity = self.inverter.get_max_capacity()
+            with self._dashboard_lock:
+                self.last_max_capacity = self.inverter.get_max_capacity()
             self.fetched_max_capacity = True
             if self.mqtt_api is not None:
                 self.mqtt_api.publish_max_energy_capacity(
@@ -684,12 +700,14 @@ class Batcontrol:
 
     def get_free_capacity(self) -> float:
         """ Returns the free capacity in Wh that is usable for (dis)charging """
-        self.last_free_capacity = self.inverter.get_free_capacity()
+        with self._dashboard_lock:
+            self.last_free_capacity = self.inverter.get_free_capacity()
         return self.last_free_capacity
 
     def set_reserved_energy(self, reserved_energy) -> None:
         """ Set the reserved energy in Wh """
-        self.last_reserved_energy = reserved_energy
+        with self._dashboard_lock:
+            self.last_reserved_energy = reserved_energy
         if self.mqtt_api is not None:
             self.mqtt_api.publish_reserved_energy_capacity(reserved_energy)
 
@@ -699,7 +717,8 @@ class Batcontrol:
 
     def set_stored_energy(self, stored_energy) -> None:
         """ Set the stored energy in Wh """
-        self.last_stored_energy = stored_energy
+        with self._dashboard_lock:
+            self.last_stored_energy = stored_energy
         if self.mqtt_api is not None:
             self.mqtt_api.publish_stored_energy_capacity(stored_energy)
 
@@ -708,7 +727,8 @@ class Batcontrol:
             This is the energy that can be used for discharging. This takes
             account of MIN_SOC and MAX_SOC.
         """
-        self.last_stored_usable_energy = stored_usable_energy
+        with self._dashboard_lock:
+            self.last_stored_usable_energy = stored_usable_energy
         if self.mqtt_api is not None:
             self.mqtt_api.publish_stored_usable_energy_capacity(
                 stored_usable_energy)
@@ -928,3 +948,142 @@ class Batcontrol:
         self.production_offset_percent = production_offset
         if self.mqtt_api is not None:
             self.mqtt_api.publish_production_offset(production_offset)
+
+    def _init_dashboard(self, config: dict) -> None:
+        """Initialize optional built-in web dashboard."""
+        web_config = config.get('webinterface') or {}
+        if not web_config.get('enabled', False):
+            return
+
+        history_path = web_config.get(
+            'history_file',
+            os.path.join('logs', 'webinterface_history.jsonl'))
+        history_days = int(web_config.get('history_days', 7))
+        host = web_config.get('host', '0.0.0.0')
+        port = int(web_config.get('port', 8080))
+
+        self.dashboard_history = DashboardHistory(
+            history_path,
+            self.time_resolution,
+            retention_days=history_days,
+        )
+        try:
+            self.dashboard_server = DashboardServer(
+                host=host,
+                port=port,
+                snapshot_provider=self.get_dashboard_snapshot,
+                title=web_config.get('title', 'batcontrol dashboard'),
+            )
+            self.dashboard_server.start()
+        except OSError as exc:
+            logger.error(
+                'Failed to start web dashboard on %s:%d: %s',
+                host,
+                port,
+                exc)
+            self.dashboard_server = None
+
+    def _record_dashboard_history(self, production, consumption) -> None:
+        """Persist one data point per active interval for dashboard history."""
+        if (
+            self.dashboard_history is None
+            or len(production) == 0
+            or len(consumption) == 0
+        ):
+            return
+
+        self.dashboard_history.record(
+            timestamp=self.last_run_time,
+            soc=self.get_SOC(),
+            production=production[0],
+            consumption=consumption[0],
+        )
+
+    def get_dashboard_snapshot(self) -> Dict:
+        """Build the JSON payload consumed by the dashboard UI."""
+        with self._dashboard_lock:
+            run_time = self.last_run_time or time.time()
+            production = self.last_production
+            consumption = self.last_consumption
+            prices = self.last_prices
+            soc = self.last_SOC if self.last_SOC >= 0 else None
+            stored_energy = self.last_stored_energy if self.last_stored_energy >= 0 else None
+            reserved_energy = self.last_reserved_energy if self.last_reserved_energy >= 0 else None
+            charge_rate = self.last_charge_rate
+            mode = self.last_mode
+
+        history_entries = []
+        if self.dashboard_history is not None:
+            history_entries = self.dashboard_history.get_entries()
+
+        def _history_points(key: str) -> List[Dict]:
+            points = []
+            for entry in history_entries:
+                point_time = datetime.datetime.fromtimestamp(
+                    int(entry['timestamp']),
+                    tz=self.timezone,
+                )
+                points.append({
+                    'timestamp': int(entry['timestamp']),
+                    'iso': point_time.isoformat(),
+                    'value': entry[key],
+                })
+            return points
+
+        return {
+            'generated_at': datetime.datetime.fromtimestamp(
+                run_time,
+                tz=self.timezone,
+            ).isoformat(),
+            'timezone': str(self.timezone),
+            'status': {
+                'soc_percent': soc,
+                'mode': mode,
+                'mode_label': self._format_mode(mode),
+                'charge_rate_w': charge_rate,
+                'stored_energy_wh': stored_energy,
+                'reserved_energy_wh': reserved_energy,
+                'interval_minutes': self.time_resolution,
+            },
+            'today': {
+                'load_profile': build_forecast_series(
+                    consumption,
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
+                'pv_forecast': build_forecast_series(
+                    production,
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
+                'prices': build_forecast_series(
+                    prices,
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
+            },
+            'history': {
+                'soc': _history_points('soc'),
+                'production': _history_points('production'),
+                'consumption': _history_points('consumption'),
+            },
+            'history_note': (
+                'Historical production/consumption reflects interval snapshots '
+                'recorded by batcontrol from the time this dashboard is enabled.'
+            ),
+        }
+
+    @staticmethod
+    def _format_mode(mode: Optional[int]) -> str:
+        """Return a human-readable mode label for the dashboard."""
+        mode_names = {
+            MODE_FORCE_CHARGING: 'Force charging',
+            MODE_AVOID_DISCHARGING: 'Avoid discharging',
+            MODE_LIMIT_BATTERY_CHARGE_RATE: 'Limit battery charge rate',
+            MODE_ALLOW_DISCHARGING: 'Allow discharging',
+            None: 'n/a',
+        }
+        return mode_names.get(mode, f'Unknown ({mode})')

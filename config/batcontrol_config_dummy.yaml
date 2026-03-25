@@ -9,6 +9,18 @@ logfile_enabled: true
 log_everything: false # if false debug messages from fronius.auth and urllib3.connectionpool will be suppressed
 max_logfile_size: 200 #kB
 logfile_path: logs/batcontrol.log
+
+#--------------------------
+#  Built-in Web Interface
+#--------------------------
+webinterface:
+  enabled: false
+  host: 0.0.0.0
+  port: 8080
+  title: batcontrol dashboard
+  history_days: 7
+  history_file: logs/webinterface_history.jsonl
+
 battery_control:
                                  # min_price_difference is the absolute minimum price difference in Euro to justify charging your battery
                                  # if min_price_difference_rel results in a higher price difference, that will be used

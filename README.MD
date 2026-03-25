@@ -163,6 +163,29 @@ python -m pytest tests/ --cov=src/batcontrol
 python -m batcontrol # When venv is activated
 ```
 
+## Built-in Web Interface
+
+Batcontrol can optionally expose a small local dashboard without extra services.
+
+Add this to your config to enable it:
+
+```yaml
+webinterface:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+  history_days: 7
+  history_file: logs/webinterface_history.jsonl
+```
+
+The dashboard shows:
+- The current day's load profile
+- PV production forecast
+- Prices
+- A rolling history of SOC plus interval snapshots of production and consumption
+
+Historical production and consumption begin accumulating from the moment the dashboard history is enabled.
+
 # Docker usage
 
 ## Preparations
