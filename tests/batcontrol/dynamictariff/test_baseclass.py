@@ -356,10 +356,11 @@ class TestAwattarProvider:
         }
 
     def test_awattar_gets_stekker_forecast_for_specific_day(self, timezone):
-        """Stekker day forecast should be filtered to one local day and converted to EUR/kWh."""
+        """Stekker day forecast should be filtered and converted to the final batcontrol price."""
         from batcontrol.dynamictariff.awattar import Awattar
 
         provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        provider.set_price_parameters(vat=0.2, price_fees=0.05, price_markup=0.1)
         provider._fetch_stekker_forecast_page = lambda filter_from, filter_to: (
             '<div data-epex-forecast-graph-data-value="'
             '[{&quot;name&quot;:&quot;Forecast price&quot;,'
@@ -374,8 +375,8 @@ class TestAwattarProvider:
         prices = provider._get_stekker_forecast_for_date(datetime(2026, 3, 27).date())
 
         assert prices == {
-            timezone.localize(datetime(2026, 3, 27, 0, 0, 0)): 0.12,
-            timezone.localize(datetime(2026, 3, 27, 1, 0, 0)): 0.121,
+            timezone.localize(datetime(2026, 3, 27, 0, 0, 0)): 0.2184,
+            timezone.localize(datetime(2026, 3, 27, 1, 0, 0)): 0.21972,
         }
 
 

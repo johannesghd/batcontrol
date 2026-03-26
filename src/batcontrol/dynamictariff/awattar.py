@@ -222,7 +222,7 @@ class Awattar(DynamicTariffBaseclass):
     def _get_stekker_forecast_for_date(
             self,
             day: datetime.date) -> dict[datetime.datetime, float]:
-        """Return Stekker forecast prices for a specific local day in EUR/kWh."""
+        """Return Stekker forecast prices for a specific local day as final end prices."""
         cached = self._stekker_forecast_cache.get(day)
         now_ts = datetime.datetime.now().timestamp()
         if cached and now_ts - cached['fetched_at_ts'] < self.min_time_between_updates:
@@ -252,7 +252,7 @@ class Awattar(DynamicTariffBaseclass):
                 continue
             if local_timestamp.minute != 0 or local_timestamp.second != 0:
                 continue
-            prices[local_timestamp] = price_eur_per_mwh / 1000
+            prices[local_timestamp] = self._calculate_end_price(price_eur_per_mwh)
 
         self._stekker_forecast_cache[day] = {
             'fetched_at_ts': now_ts,
