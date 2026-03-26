@@ -69,16 +69,19 @@ class Awattar(DynamicTariffBaseclass):
     def get_raw_data_from_provider(self):
         """ Get raw data from Awattar API and return parsed json """
         logger.debug('Requesting price forecast from Awattar API')
+        return self._fetch_raw_data(self.url)
+
+    def _fetch_raw_data(self, url: str) -> dict:
+        """Fetch raw Awattar data from the given URL."""
         try:
-            response = requests.get(self.url, timeout=30)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             if response.status_code != 200:
                 raise ConnectionError(f'[Awattar] API returned {response}')
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f'[Awattar] API request failed: {e}') from e
 
-        raw_data = response.json()
-        return raw_data
+        return response.json()
 
     def _get_prices_native(self) -> dict[int, float]:
         """Get hour-aligned prices at native (60-minute) resolution.
@@ -111,3 +114,34 @@ class Awattar(DynamicTariffBaseclass):
             len(prices)
         )
         return prices
+
+    def _calculate_end_price(self, market_price: float) -> float:
+        """Apply markup, fees and VAT to the Awattar market price."""
+        return (
+            market_price / 1000 * (1 + self.price_markup) + self.price_fees
+        ) * (1 + self.vat)
+
+    def _get_prices_for_date(self, day: datetime.date) -> dict[int, float]:
+        """Get all Awattar prices for a specific local day."""
+        naive_day_start = datetime.datetime.combine(day, datetime.time(0, 0, 0))
+        if hasattr(self.timezone, 'localize'):
+            day_start = self.timezone.localize(naive_day_start)
+        else:
+            day_start = naive_day_start.replace(tzinfo=self.timezone)
+        start_ts = int(day_start.timestamp() * 1000)
+        raw_data = self._fetch_raw_data(f'{self.url}?start={start_ts}')
+        prices = {}
+        for hour_index, item in enumerate(raw_data.get('data', [])):
+            prices[hour_index] = self._calculate_end_price(item['marketprice'])
+        return prices
+
+    def get_prices_for_today(self) -> dict[int, float]:
+        """Get all available hourly prices for the current local day."""
+        return self._get_prices_for_date(
+            datetime.datetime.now().astimezone(self.timezone).date()
+        )
+
+    def get_prices_for_tomorrow(self) -> dict[int, float]:
+        """Get all available hourly prices for the next local day."""
+        today = datetime.datetime.now().astimezone(self.timezone).date()
+        return self._get_prices_for_date(today + datetime.timedelta(days=1))

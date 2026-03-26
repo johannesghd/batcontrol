@@ -9,6 +9,7 @@ import math
 import json
 import logging
 import requests
+from urllib.parse import urlencode
 from .baseclass import ForecastSolarBaseclass, ProviderError, RateLimitException
 
 
@@ -104,12 +105,17 @@ class FCSolar(ForecastSolarBaseclass):
         elif 'api' in unit.keys() and unit['api'] is not None:
             apikey_urlmod = unit['api'] + "/"  # ForecastSolar api
 
-        horizon_querymod = ''
-        if 'horizon' in unit.keys() and unit['horizon'] is not None:
-            horizon_querymod = "?horizon=" + unit['horizon']  # ForecastSolar api
+        query_params = {}
+        for key in ['horizon', 'damping', 'damping_morning', 'damping_evening']:
+            if key in unit and unit[key] is not None:
+                query_params[key] = unit[key]
+
+        query_string = ''
+        if query_params:
+            query_string = '?' + urlencode(query_params)
 
         url = (f"https://api.forecast.solar/{apikey_urlmod}estimate/"
-               f"watthours/period/{lat}/{lon}/{dec}/{az}/{kwp}{horizon_querymod}")
+               f"watthours/period/{lat}/{lon}/{dec}/{az}/{kwp}{query_string}")
         logger.info(
             'Requesting Information for PV Installation %s', name)
 
