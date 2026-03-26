@@ -45,11 +45,11 @@ class SolcastHobbyist(ForecastSolarBaseclass):
             effective_refresh_interval,
             delay_evaluation_by_seconds,
             target_resolution=target_resolution,
-            native_resolution=60,
+            native_resolution=15,
         )
 
     def get_forecast_from_raw_data(self) -> dict[int, float]:
-        """Aggregate Solcast rooftop site forecasts into hourly W values."""
+        """Convert Solcast rooftop site forecasts into 15-minute Wh intervals."""
         results = self.get_all_raw_data()
         prediction = {}
 
@@ -57,7 +57,10 @@ class SolcastHobbyist(ForecastSolarBaseclass):
         current_hour = now.replace(minute=0, second=0, microsecond=0)
 
         for _, result in results.items():
-            for entry in result.get('forecasts', []):
+            previous_interval_energy_wh = None
+            for entry in sorted(
+                    result.get('forecasts', []),
+                    key=lambda item: item.get('period_end', '')):
                 pv_estimate_kw = entry.get('pv_estimate')
                 period_end_str = entry.get('period_end')
                 if pv_estimate_kw is None or period_end_str is None:
@@ -66,22 +69,28 @@ class SolcastHobbyist(ForecastSolarBaseclass):
                 period_end = self._parse_timestamp(period_end_str).astimezone(self.timezone)
                 period = self._parse_period(entry.get('period', 'PT30M'))
                 period_start = period_end - period
-                bucket_start = period_start.replace(minute=0, second=0, microsecond=0)
-                rel_hour = int((bucket_start - current_hour).total_seconds() / 3600)
-                if rel_hour < 0:
-                    continue
-
-                duration_hours = period.total_seconds() / 3600
-                prediction[rel_hour] = prediction.get(rel_hour, 0) + (
-                    pv_estimate_kw * 1000 * duration_hours
+                period_energy_wh = pv_estimate_kw * 1000 * (period.total_seconds() / 3600)
+                interval_energies_wh = self._split_period_energy_to_quarters(
+                    period_energy_wh,
+                    period,
+                    previous_interval_energy_wh,
                 )
+
+                for interval_index, interval_energy_wh in enumerate(interval_energies_wh):
+                    interval_start = period_start + datetime.timedelta(minutes=15 * interval_index)
+                    rel_interval = int((interval_start - current_hour).total_seconds() / 900)
+                    if rel_interval < 0:
+                        continue
+                    prediction[rel_interval] = prediction.get(rel_interval, 0) + interval_energy_wh
+
+                previous_interval_energy_wh = period_energy_wh
 
         if not prediction:
             return {}
 
-        max_hour = max(prediction.keys())
-        for hour in range(max_hour + 1):
-            prediction.setdefault(hour, 0)
+        max_interval = max(prediction.keys())
+        for interval in range(max_interval + 1):
+            prediction.setdefault(interval, 0)
 
         return dict(sorted(prediction.items()))
 
@@ -159,3 +168,32 @@ class SolcastHobbyist(ForecastSolarBaseclass):
         hours = int(match.group('hours') or 0)
         minutes = int(match.group('minutes') or 0)
         return datetime.timedelta(hours=hours, minutes=minutes)
+
+    @staticmethod
+    def _split_period_energy_to_quarters(
+            period_energy_wh: float,
+            period: datetime.timedelta,
+            previous_period_energy_wh: float = None) -> list[float]:
+        """Split Solcast period energy into 15-minute buckets.
+
+        For 30-minute periods, use trapezoidal disaggregation with the previous
+        period energy as the reference. This biases rising production later in
+        the half-hour and falling production earlier, while preserving the
+        current half-hour total.
+        """
+        minutes = int(period.total_seconds() // 60)
+        if minutes == 15:
+            return [period_energy_wh]
+        if minutes != 30:
+            quarter_count = max(1, int(period.total_seconds() // 900))
+            return [period_energy_wh / quarter_count] * quarter_count
+
+        if previous_period_energy_wh is None:
+            previous_period_energy_wh = 0
+
+        first_quarter_wh = max(
+            0,
+            min(period_energy_wh, (previous_period_energy_wh + period_energy_wh) / 4),
+        )
+        second_quarter_wh = period_energy_wh - first_quarter_wh
+        return [first_quarter_wh, second_quarter_wh]

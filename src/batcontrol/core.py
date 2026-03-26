@@ -117,6 +117,20 @@ class Batcontrol:
 
             raise ValueError(error_message)
 
+        requested_solar_provider = config.get(
+            'solar_forecast_provider', 'fcsolarapi'
+        ).lower()
+        if (
+            self.time_resolution == 60 and
+            requested_solar_provider in ['solcast-hobbyist', 'solcast_hobbyist', 'evcc-solar']
+        ):
+            logger.info(
+                'Solar provider %s supplies sub-hourly data. '
+                'Upgrading effective calculation resolution from 60 to 15 minutes.',
+                requested_solar_provider,
+            )
+            self.time_resolution = 15
+
         self.intervals_per_hour = 60 // self.time_resolution
         logger.info(
             'Using %d-minute time resolution (%d intervals per hour)',
@@ -187,8 +201,7 @@ class Batcontrol:
             self.timezone,
             TIME_BETWEEN_UTILITY_API_CALLS,
             DELAY_EVALUATION_BY_SECONDS,
-            requested_provider=config.get(
-                'solar_forecast_provider', 'fcsolarapi'),
+            requested_provider=requested_solar_provider,
             target_resolution=self.time_resolution
         )
 

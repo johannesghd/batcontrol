@@ -41,8 +41,8 @@ def test_solcast_hobbyist_builds_rooftop_site_request(mock_get):
     }
 
 
-def test_solcast_hobbyist_aggregates_two_resources_to_hourly():
-    """Two rooftop resources should be summed into one hourly W forecast."""
+def test_solcast_hobbyist_aggregates_two_resources_to_quarter_hourly():
+    """Two rooftop resources should be summed into native 15-minute intervals."""
     timezone = pytz.timezone('Europe/Berlin')
     provider = SolcastHobbyist(
         pvinstallations=[
@@ -51,7 +51,7 @@ def test_solcast_hobbyist_aggregates_two_resources_to_hourly():
         ],
         timezone=timezone,
         min_time_between_api_calls=900,
-        target_resolution=60,
+        target_resolution=15,
         delay_evaluation_by_seconds=0,
     )
 
@@ -83,8 +83,36 @@ def test_solcast_hobbyist_aggregates_two_resources_to_hourly():
 
         forecast = provider.get_forecast_from_raw_data()
 
-    assert forecast[0] == 1000
-    assert forecast[1] == 1400
+    assert forecast[0] == 100
+    assert forecast[1] == 300
+    assert forecast[2] == 250
+    assert forecast[3] == 350
+    assert forecast[4] == 300
+    assert forecast[5] == 300
+    assert forecast[6] == 350
+    assert forecast[7] == 450
+
+
+def test_solcast_hobbyist_trapezoid_split_uses_previous_interval_reference():
+    """30-minute Solcast intervals should be split with a trapezoid using the previous interval."""
+    split = SolcastHobbyist._split_period_energy_to_quarters(
+        period_energy_wh=100,
+        period=__import__('datetime').timedelta(minutes=30),
+        previous_period_energy_wh=0,
+    )
+
+    assert split == [25, 75]
+
+
+def test_solcast_hobbyist_trapezoid_split_defaults_missing_previous_to_zero():
+    """Missing previous interval should be treated as 0 Wh."""
+    split = SolcastHobbyist._split_period_energy_to_quarters(
+        period_energy_wh=100,
+        period=__import__('datetime').timedelta(minutes=30),
+        previous_period_energy_wh=None,
+    )
+
+    assert split == [25, 75]
 
 
 def test_solcast_hobbyist_raises_for_missing_resource_id():
@@ -102,3 +130,53 @@ def test_solcast_hobbyist_raises_for_missing_resource_id():
         assert False, 'Expected ValueError for missing resource_id'
     except ValueError as exc:
         assert 'resource_id' in str(exc)
+
+
+@patch('batcontrol.core.tariff_factory.create_tarif_provider')
+@patch('batcontrol.core.inverter_factory.create_inverter')
+@patch('batcontrol.core.solar_factory.create_solar_provider')
+@patch('batcontrol.core.consumption_factory.create_consumption')
+def test_core_promotes_time_resolution_for_subhourly_solar_provider(
+        mock_consumption, mock_solar, mock_inverter_factory, mock_tariff):
+    """Core should switch to 15-minute logic when the solar provider is sub-hourly."""
+    from batcontrol.core import Batcontrol
+
+    mock_inverter = MagicMock()
+    mock_inverter.get_max_capacity.return_value = 10000
+    mock_inverter_factory.return_value = mock_inverter
+    mock_tariff.return_value = MagicMock()
+    mock_solar.return_value = MagicMock()
+    mock_consumption.return_value = MagicMock()
+
+    config = {
+        'timezone': 'Europe/Berlin',
+        'time_resolution_minutes': 60,
+        'solar_forecast_provider': 'solcast-hobbyist',
+        'inverter': {
+            'type': 'dummy',
+            'max_grid_charge_rate': 5000,
+            'max_pv_charge_rate': 3000,
+            'min_pv_charge_rate': 100,
+        },
+        'utility': {
+            'type': 'tibber',
+            'token': 'test_token',
+        },
+        'pvinstallations': [],
+        'consumption_forecast': {
+            'type': 'simple',
+            'value': 500,
+        },
+        'battery_control': {
+            'max_charging_from_grid_limit': 0.8,
+            'min_price_difference': 0.05,
+        },
+        'mqtt': {
+            'enabled': False,
+        }
+    }
+
+    bc = Batcontrol(config)
+
+    assert bc.time_resolution == 15
+    assert bc.intervals_per_hour == 4
