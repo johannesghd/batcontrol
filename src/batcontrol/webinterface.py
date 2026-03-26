@@ -562,9 +562,25 @@ def _build_dashboard_html(title: str) -> str:
         left: 58
       }};
       const points = series.flatMap(item => item.points);
+      const selectedTimestamp = options.selectedTimestamp || null;
       const times = points.map(point => point.timestamp);
-      const minX = Math.min(...times);
-      const maxX = Math.max(...times);
+      if (selectedTimestamp) {{
+        times.push(selectedTimestamp);
+      }}
+      const dataMinX = Math.min(...times);
+      const dataMaxX = Math.max(...times);
+      const minHoursSpan = options.minHoursSpan || 0;
+      const minSpanSeconds = minHoursSpan * 3600;
+      let minX = dataMinX;
+      let maxX = dataMaxX;
+      if (minSpanSeconds > 0) {{
+        if (options.domainMode === 'history') {{
+          maxX = Math.max(dataMaxX, selectedTimestamp || dataMaxX);
+          minX = Math.min(dataMinX, maxX - minSpanSeconds);
+        }} else {{
+          maxX = Math.max(dataMaxX, dataMinX + minSpanSeconds);
+        }}
+      }}
       const xSpan = Math.max(maxX - minX, 1);
 
       const leftSeries = series.filter(item => item.axis !== 'right');
@@ -629,13 +645,17 @@ def _build_dashboard_html(title: str) -> str:
         }}
       }}
 
-      const tickCount = Math.min(6, points.length);
-      for (let i = 0; i < tickCount; i += 1) {{
-        const index = Math.round((points.length - 1) * (i / Math.max(tickCount - 1, 1)));
-        const point = points[index];
-        const x = xScale(point.timestamp);
+      const tickCount = 6;
+      const showDateOnTicks = xSpan >= 24 * 3600;
+      for (let i = 0; i <= tickCount; i += 1) {{
+        const tickTs = minX + (xSpan / tickCount) * i;
+        const x = xScale(tickTs);
+        const tickDate = new Date(tickTs * 1000);
+        const label = showDateOnTicks
+          ? tickDate.toLocaleString([], {{ day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }})
+          : tickDate.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }});
         svg += `<line x1="${{x}}" y1="${{pad.top}}" x2="${{x}}" y2="${{height - pad.bottom}}" stroke="${{COLORS.grid}}" stroke-width="1" />`;
-        svg += `<text x="${{x}}" y="${{height - 10}}" text-anchor="middle" font-size="12" fill="${{COLORS.muted}}">${{new Date(point.iso).toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }})}}</text>`;
+        svg += `<text x="${{x}}" y="${{height - 10}}" text-anchor="middle" font-size="12" fill="${{COLORS.muted}}">${{label}}</text>`;
       }}
 
       series.forEach(item => {{
@@ -650,8 +670,8 @@ def _build_dashboard_html(title: str) -> str:
         svg += `<path d="${{path}}" fill="none" stroke="${{item.color}}" stroke-width="3"${{dash}} stroke-linejoin="round" stroke-linecap="round"/>`;
       }});
 
-      if (options.selectedTimestamp) {{
-        const x = xScale(options.selectedTimestamp);
+      if (selectedTimestamp) {{
+        const x = xScale(selectedTimestamp);
         svg += `<line x1="${{x}}" y1="${{pad.top}}" x2="${{x}}" y2="${{height - pad.bottom}}" stroke="${{COLORS.price}}" stroke-width="2" stroke-dasharray="5 5" />`;
       }}
 
@@ -682,6 +702,34 @@ def _build_dashboard_html(title: str) -> str:
       return path;
     }}
 
+    function findNearestTimelineIndex(targetTimestamp) {{
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      timeline.forEach((item, index) => {{
+        const distance = Math.abs(item.timestamp - targetTimestamp);
+        if (distance < nearestDistance) {{
+          nearestDistance = distance;
+          nearestIndex = index;
+        }}
+      }});
+      return nearestIndex;
+    }}
+
+    function getQuarterHourTickIndexes() {{
+      if (!timeline.length) return [];
+      const tickIndexes = new Set([0, timeline.length - 1]);
+      const startTimestamp = timeline[0].timestamp;
+      const endTimestamp = timeline[timeline.length - 1].timestamp;
+      const quarterHourSeconds = 15 * 60;
+      const firstQuarterHour = Math.ceil(startTimestamp / quarterHourSeconds) * quarterHourSeconds;
+
+      for (let tickTs = firstQuarterHour; tickTs <= endTimestamp; tickTs += quarterHourSeconds) {{
+        tickIndexes.add(findNearestTimelineIndex(tickTs));
+      }}
+
+      return Array.from(tickIndexes).sort((a, b) => a - b);
+    }}
+
     function updateSlider() {{
       const slider = document.getElementById('timeline-slider');
       const ticks = document.getElementById('timeline-ticks');
@@ -699,7 +747,9 @@ def _build_dashboard_html(title: str) -> str:
       slider.max = timeline.length - 1;
       slider.value = selectedIndex ?? timeline.length - 1;
       const denominator = Math.max(timeline.length - 1, 1);
-      ticks.innerHTML = timeline.map((item, index) => {{
+      const tickIndexes = getQuarterHourTickIndexes();
+      ticks.innerHTML = tickIndexes.map((index) => {{
+        const item = timeline[index];
         const left = (index / denominator) * 100;
         const active = index === Number(slider.value);
         return `
@@ -772,6 +822,8 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.socForecast, points: data.today.predicted_soc, axis: 'soc', dash: '7 5' }},
       ], {{
         height: 380,
+        minHoursSpan: 36,
+        domainMode: 'future',
         leftIncludeZero: true,
         rightAxis: true,
         yDigits: 0,
@@ -788,6 +840,8 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.gridActual, points: data.history.actual_grid, dash: '3 5' }},
       ], {{
         selectedTimestamp: data.selected_run ? data.selected_run.timestamp : null,
+        minHoursSpan: 36,
+        domainMode: 'history',
         yDigits: 0,
         rightAxis: true,
         rightYDigits: 0,
