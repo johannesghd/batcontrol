@@ -410,9 +410,10 @@ class Batcontrol:
         try:
             price_dict = self.dynamic_tariff.get_prices()
             production_forecast = self.fc_solar.get_forecast()
-            # harmonize forecast horizon
-            fc_period = min(max(price_dict.keys()),
-                            max(production_forecast.keys()))
+            # Use the price horizon as the primary forecast horizon.
+            # PV forecasts may stop at sunset; missing later intervals should be 0,
+            # not truncate the whole combined forecast window.
+            fc_period = max(price_dict.keys())
             consumption_forecast = self.fc_consumption.get_forecast(
                 fc_period + 1)
             if len(consumption_forecast) < fc_period + 1:
@@ -445,7 +446,7 @@ class Batcontrol:
         prices = np.zeros(fc_period + 1)
 
         for h in range(fc_period + 1):
-            production[h] = production_forecast[h] * \
+            production[h] = production_forecast.get(h, 0) * \
                 self.production_offset_percent
             consumption[h] = consumption_forecast[h]
             prices[h] = round(price_dict[h], self.round_price_digits)

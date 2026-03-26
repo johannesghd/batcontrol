@@ -212,6 +212,64 @@ class TestProductionOffset:
             # Should not be updated
             assert batcontrol.production_offset_percent == original_value
 
+    def test_production_forecast_is_zero_filled_to_price_horizon(self, mock_config):
+        """PV forecast should extend to the price horizon with zeros after sunset."""
+        with patch('batcontrol.core.tariff_factory'), \
+             patch('batcontrol.core.inverter_factory'), \
+             patch('batcontrol.core.solar_factory'), \
+             patch('batcontrol.core.consumption_factory'):
+
+            batcontrol = Batcontrol(mock_config)
+
+            price_dict = {0: 0.20, 1: 0.25, 2: 0.30, 3: 0.35}
+            production_forecast = {0: 1000, 1: 500}  # sunset after slot 1
+            consumption_forecast = {0: 400, 1: 400, 2: 400, 3: 400}
+
+            batcontrol.dynamic_tariff = Mock()
+            batcontrol.dynamic_tariff.get_prices = Mock(return_value=price_dict)
+
+            batcontrol.fc_solar = Mock()
+            batcontrol.fc_solar.get_forecast = Mock(return_value=production_forecast)
+
+            batcontrol.fc_consumption = Mock()
+            batcontrol.fc_consumption.get_forecast = Mock(return_value=consumption_forecast)
+
+            batcontrol.inverter = Mock()
+            batcontrol.inverter.get_SOC = Mock(return_value=50.0)
+            batcontrol.inverter.get_stored_energy = Mock(return_value=5000)
+            batcontrol.inverter.get_stored_usable_energy = Mock(return_value=4000)
+            batcontrol.inverter.get_free_capacity = Mock(return_value=5000)
+            batcontrol.inverter.get_max_capacity = Mock(return_value=10000)
+            batcontrol.inverter.get_reserved_energy = Mock(return_value=1000)
+
+            batcontrol.mqtt_api = None
+            batcontrol.evcc_api = None
+
+            with patch('batcontrol.core.LogicFactory') as mock_logic_factory:
+                mock_logic = Mock()
+                inverter_settings = InverterControlSettings(
+                    allow_discharge=True,
+                    charge_from_grid=False,
+                    charge_rate=0,
+                    limit_battery_charge_rate=-1
+                )
+                calc_output = CalculationOutput(
+                    reserved_energy=1000,
+                    required_recharge_energy=0,
+                    min_dynamic_price_difference=0.05
+                )
+                mock_logic.get_inverter_control_settings = Mock(return_value=inverter_settings)
+                mock_logic.get_calculation_output = Mock(return_value=calc_output)
+                mock_logic.calculate = Mock(return_value=True)
+                mock_logic.set_calculation_parameters = Mock()
+                mock_logic_factory.create_logic = Mock(return_value=mock_logic)
+
+                batcontrol.run()
+
+                assert len(batcontrol.last_production) == 4
+                assert batcontrol.last_production[2] == 0
+                assert batcontrol.last_production[3] == 0
+
     def test_production_offset_api_set_boundary_values(self, mock_config):
         """Test setting production offset via API with boundary values"""
         with patch('batcontrol.core.tariff_factory'), \
