@@ -63,8 +63,8 @@ def test_build_forecast_series_aligns_points_to_interval():
     assert series[1]["timestamp"] - series[0]["timestamp"] == 15 * 60
 
 
-def test_energy_flow_projection_handles_export_and_import():
-    """Projection should produce SOC, grid export, and grid import series."""
+def test_energy_flow_projection_handles_signed_grid_power():
+    """Projection should produce SOC and signed projected grid power."""
     bc = object.__new__(Batcontrol)
     bc.time_resolution = 60
     projection = Batcontrol._build_energy_flow_projection(
@@ -80,8 +80,7 @@ def test_energy_flow_projection_handles_export_and_import():
     )
 
     assert projection['soc'] == [80.0, 100.0, 100.0, 50.0]
-    assert projection['export'] == [100.0, 100.0, 0.0, 0.0]
-    assert projection['import'] == [0.0, 0.0, 0.0, 200.0]
+    assert projection['grid'] == [100.0, 100.0, 0.0, -200.0]
 
 
 @patch('batcontrol.core.tariff_factory.create_tarif_provider')
@@ -174,6 +173,7 @@ def test_batcontrol_dashboard_snapshot(
         assert len(snapshot['today']['load_profile']) == 2
         assert len(snapshot['today']['pv_forecast']) == 2
         assert len(snapshot['today']['prices']) == 2
+        assert len(snapshot['today']['predicted_grid_power']) == 2
         assert len(snapshot['timeline']) == 1
         assert len(snapshot['history']['soc']) == 1
         assert snapshot['history']['actual_production'][0]['value'] == 1180.0

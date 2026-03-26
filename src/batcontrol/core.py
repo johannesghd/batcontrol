@@ -1174,14 +1174,8 @@ class Batcontrol:
                     self.time_resolution,
                     self.timezone,
                 ),
-                'predicted_grid_export': build_forecast_series(
-                    projected_flows['export'],
-                    run_time,
-                    self.time_resolution,
-                    self.timezone,
-                ),
-                'predicted_grid_import': build_forecast_series(
-                    projected_flows['import'],
+                'predicted_grid_power': build_forecast_series(
+                    projected_flows['grid'],
                     run_time,
                     self.time_resolution,
                     self.timezone,
@@ -1306,6 +1300,8 @@ class Batcontrol:
 
         return {
             'soc': soc_forecast,
-            'export': export_forecast,
-            'import': import_forecast,
+            'grid': [
+                round(export_value - import_value, 3)
+                for export_value, import_value in zip(export_forecast, import_forecast)
+            ],
         }
