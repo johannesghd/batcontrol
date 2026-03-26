@@ -99,7 +99,9 @@ class FCSolar(ForecastSolarBaseclass):
         kwp = unit['kWp']
 
         apikey_urlmod = ''
-        if 'apikey' in unit.keys() and unit['apikey'] is not None:
+        if 'api_key' in unit.keys() and unit['api_key'] is not None:
+            apikey_urlmod = unit['api_key'] + "/"  # ForecastSolar api
+        elif 'apikey' in unit.keys() and unit['apikey'] is not None:
             apikey_urlmod = unit['apikey'] + "/"  # ForecastSolar api
         # legacy naming in config file
         elif 'api' in unit.keys() and unit['api'] is not None:

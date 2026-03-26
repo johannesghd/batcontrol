@@ -145,25 +145,30 @@ mqtt:
 solar_forecast_provider: fcsolarapi
 
 pvinstallations:
-  # PRIMARY: fcsolarapi provider - Uses PVGIS forecast based on location
+  # One installation block per PV plane / forecast resource.
+  # Keep the fields required by your selected provider and leave the others commented.
   - name: Demo PV System              # name - update this for your system
-    type: fcsolarapi                  # Optional: explicitly specify provider type
-    lat: 48.4334480                   # Update with your actual latitude
-    lon: 8.7654968                    # Update with your actual longitude
-    declination: 30                   # inclination toward horizon 0..90 0=flat 90=vertical
-    azimuth: 0                        # -90:East, 0:South, 90:West -180..180
-    kWp: 10.0                         # power in kWp - update with your actual system size
-    #horizon:                         # leave empty for default PVGIS horizon
+    type: fcsolarapi                  # Optional: fcsolarapi / solcast-hobbyist / solarprognose
+    lat: 48.4334480                   # fcsolarapi
+    lon: 8.7654968                    # fcsolarapi
+    declination: 30                   # fcsolarapi, inclination toward horizon 0..90
+    azimuth: 0                        # fcsolarapi, -90:East, 0:South, 90:West
+    kWp: 10.0                         # fcsolarapi, system size in kWp
+    #horizon: 0,0,0,0                # fcsolarapi, optional custom horizon
+    #resource_id: abc123             # solcast-hobbyist, rooftop resource id
+    #api_key: YOUR_SOLCAST_API_KEY   # solcast-hobbyist / solarprognose
+    #hours: 168                      # solcast-hobbyist, optional forecast horizon
+    #algorithm: mosmix               # solarprognose, optional
+    #item: plant                     # solarprognose, optional
+    #id: 12345                       # solarprognose, optional
+    #token: YOUR_TOKEN               # solarprognose, optional alternative to id
 
-  # ALTERNATIVE: Solcast hobbyist - one entry per rooftop resource ID
-  # - name: Solcast Roof East
-  #   resource_id: abc123
-  #   api_key: YOUR_SOLCAST_API_KEY
-  #   hours: 168
-  # - name: Solcast Roof West
-  #   resource_id: def456
-  #   api_key: YOUR_SOLCAST_API_KEY
-  #   hours: 168
+  # Add a second installation only if your provider needs or benefits from it
+  # (for example a second Solcast rooftop resource or another fcsolar plane).
+  # - name: Demo PV System 2
+  #   type: solcast-hobbyist
+  #   #resource_id: def456
+  #   #api_key: YOUR_SOLCAST_API_KEY
 
   # ALTERNATIVE: HomeAssistant Solar Forecast ML - Uses ML forecast from HomeAssistant
   # Uncomment this section to use HomeAssistant Solar Forecast ML integration

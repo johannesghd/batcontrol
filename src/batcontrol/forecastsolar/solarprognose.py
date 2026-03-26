@@ -119,7 +119,7 @@ class SolarPrognose(ForecastSolarBaseclass):
             raise RuntimeError(f'[FCSolar] PV Installation {pvinstallation_name} not found')
 
         name = unit['name']
-        apikey = unit.get('apikey', None)
+        apikey = unit.get('api_key', unit.get('apikey', None))
         if apikey is None:
             logger.error(
                 "No API key provided for installation %s", name)
