@@ -56,9 +56,14 @@ def test_data_recorder_persists_rows(tmp_path):
         production=[400],
         consumption=[600],
         net_consumption=[200],
+        history_forecast_metrics={
+            'predicted_production_w': 400,
+            'predicted_consumption_w': 600,
+        },
         actual_metrics={
             'actual_production_w': 500,
             'actual_consumption_w': 450,
+            'actual_grid_w': -150,
         },
     )
 
@@ -91,9 +96,14 @@ def test_data_recorder_can_query_snapshot_and_timeline(tmp_path):
         production=[400],
         consumption=[600],
         net_consumption=[200],
+        history_forecast_metrics={
+            'predicted_production_w': 400,
+            'predicted_consumption_w': 600,
+        },
         actual_metrics={
             'actual_production_w': 900,
             'actual_consumption_w': 300,
+            'actual_grid_w': 120,
         },
     )
     recorder.record_calculation(
@@ -108,6 +118,10 @@ def test_data_recorder_can_query_snapshot_and_timeline(tmp_path):
         production=[500],
         consumption=[550],
         net_consumption=[50],
+        history_forecast_metrics={
+            'predicted_production_w': 500,
+            'predicted_consumption_w': 550,
+        },
     )
 
     timeline = recorder.get_calculation_timeline()
@@ -121,10 +135,37 @@ def test_data_recorder_can_query_snapshot_and_timeline(tmp_path):
     assert len(history) == 2
     assert history[0]['actual_production'] == 900
     assert history[0]['actual_consumption'] == 300
+    assert history[0]['actual_grid'] == 120
     assert history[0]['predicted_production'] == 400
     assert history[0]['predicted_consumption'] == 600
     assert history[1]['actual_production'] is None
     assert history[1]['predicted_production'] == 500
+
+
+def test_history_series_converts_interval_wh_to_watts(tmp_path):
+    """History fallback should convert stored interval energy to W."""
+    db_path = tmp_path / 'history-conversion.sqlite3'
+    recorder = DataRecorder(str(db_path))
+
+    recorder.record_calculation(
+        created_at_ts=1000.0,
+        mode=10,
+        charge_rate_w=0,
+        soc_percent=50.0,
+        stored_energy_wh=5000,
+        reserved_energy_wh=2000,
+        free_capacity_wh=3000,
+        prices=[0.21],
+        production=[250],
+        consumption=[125],
+        net_consumption=[-125],
+        metadata={'interval_minutes': 15},
+    )
+
+    history = recorder.get_history_series()
+
+    assert history[0]['predicted_production'] == 1000.0
+    assert history[0]['predicted_consumption'] == 500.0
 
 
 def test_tariff_refresh_records_source_update(tmp_path):

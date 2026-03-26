@@ -450,6 +450,10 @@ class Batcontrol:
             prices[h] = round(price_dict[h], self.round_price_digits)
 
         net_consumption = consumption - production
+        history_forecast_metrics = {
+            'predicted_production_w': self._interval_energy_to_power(production[0]),
+            'predicted_consumption_w': self._interval_energy_to_power(consumption[0]),
+        }
 
         # Log if production offset is active
         if self.production_offset_percent != 1.0:
@@ -481,7 +485,12 @@ class Batcontrol:
                 TIME_BETWEEN_EVALUATIONS
             )
             self._record_calculation_snapshot(
-                production, consumption, net_consumption, prices)
+                production,
+                consumption,
+                net_consumption,
+                prices,
+                history_forecast_metrics=history_forecast_metrics,
+            )
             self.api_overwrite = False
             return
 
@@ -543,7 +552,12 @@ class Batcontrol:
             logger.error('Calculation failed. Falling back to discharge')
             self.allow_discharging()
             self._record_calculation_snapshot(
-                production, consumption, net_consumption, prices)
+                production,
+                consumption,
+                net_consumption,
+                prices,
+                history_forecast_metrics=history_forecast_metrics,
+            )
             return
 
         calc_output = this_logic_run.get_calculation_output()
@@ -573,7 +587,12 @@ class Batcontrol:
             self.avoid_discharging()
 
         self._record_calculation_snapshot(
-            production, consumption, net_consumption, prices)
+            production,
+            consumption,
+            net_consumption,
+            prices,
+            history_forecast_metrics=history_forecast_metrics,
+        )
 
     def __set_charge_rate(self, charge_rate: int):
         """ Set charge rate and publish to mqtt """
@@ -1014,7 +1033,8 @@ class Batcontrol:
             production,
             consumption,
             net_consumption,
-            prices) -> None:
+            prices,
+            history_forecast_metrics: Optional[Dict] = None) -> None:
         """Persist one completed control-cycle snapshot."""
         if self.data_recorder is None:
             return
@@ -1035,6 +1055,7 @@ class Batcontrol:
             production=production,
             consumption=consumption,
             net_consumption=net_consumption,
+            history_forecast_metrics=history_forecast_metrics,
             actual_metrics=actual_metrics,
             metadata={
                 'interval_minutes': self.time_resolution,
@@ -1185,6 +1206,7 @@ class Batcontrol:
                 'soc': _history_points('soc_percent'),
                 'actual_production': _history_points('actual_production'),
                 'predicted_production': _history_points('predicted_production'),
+                'actual_grid': _history_points('actual_grid'),
                 'actual_consumption': _history_points('actual_consumption'),
                 'predicted_consumption': _history_points('predicted_consumption'),
             },
@@ -1209,6 +1231,12 @@ class Batcontrol:
             None: 'n/a',
         }
         return mode_names.get(mode, f'Unknown ({mode})')
+
+    def _interval_energy_to_power(self, energy_wh: Optional[float]) -> Optional[float]:
+        """Convert per-interval energy in Wh to average power in W."""
+        if energy_wh is None:
+            return None
+        return float(energy_wh) * 60.0 / float(self.time_resolution)
 
     def _format_source_snapshot(self, source_snapshot) -> Dict:
         """Convert source update metadata for the dashboard."""

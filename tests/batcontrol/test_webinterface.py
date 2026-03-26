@@ -38,6 +38,10 @@ def test_data_recorder_history_series_uses_calculation_rows(tmp_path):
         production=[1000],
         consumption=[700],
         net_consumption=[-300],
+        history_forecast_metrics={
+            'predicted_production_w': 1000,
+            'predicted_consumption_w': 700,
+        },
     )
 
     entries = recorder.get_history_series()
@@ -161,9 +165,14 @@ def test_batcontrol_dashboard_snapshot(
             production=bc.last_production,
             consumption=bc.last_consumption,
             net_consumption=bc.last_consumption - bc.last_production,
+            history_forecast_metrics={
+                'predicted_production_w': 1200.0,
+                'predicted_consumption_w': 800.0,
+            },
             actual_metrics={
                 'actual_production_w': 1180.0,
                 'actual_consumption_w': 760.0,
+                'actual_grid_w': -420.0,
             },
         )
 
@@ -178,6 +187,7 @@ def test_batcontrol_dashboard_snapshot(
         assert len(snapshot['history']['soc']) == 1
         assert snapshot['history']['actual_production'][0]['value'] == 1180.0
         assert snapshot['history']['predicted_production'][0]['value'] == 1200.0
+        assert snapshot['history']['actual_grid'][0]['value'] == -420.0
         assert snapshot['sources']['prices']['provider'] == 'DummyTariff'
     finally:
         bc.shutdown()

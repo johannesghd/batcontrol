@@ -55,6 +55,8 @@ class DataRecorder:
                     stored_energy_wh REAL,
                     reserved_energy_wh REAL,
                     free_capacity_wh REAL,
+                    predicted_production_w REAL,
+                    predicted_consumption_w REAL,
                     actual_production_w REAL,
                     actual_consumption_w REAL,
                     actual_battery_w REAL,
@@ -77,6 +79,8 @@ class DataRecorder:
                 "CREATE INDEX IF NOT EXISTS idx_calculation_runs_ts "
                 "ON calculation_runs(created_at_ts)"
             )
+            self._ensure_column(connection, 'calculation_runs', 'predicted_production_w', 'REAL')
+            self._ensure_column(connection, 'calculation_runs', 'predicted_consumption_w', 'REAL')
             self._ensure_column(connection, 'calculation_runs', 'actual_production_w', 'REAL')
             self._ensure_column(connection, 'calculation_runs', 'actual_consumption_w', 'REAL')
             self._ensure_column(connection, 'calculation_runs', 'actual_battery_w', 'REAL')
@@ -154,9 +158,11 @@ class DataRecorder:
             production,
             consumption,
             net_consumption,
+            history_forecast_metrics: dict = None,
             actual_metrics: dict = None,
             metadata: dict = None) -> None:
         """Persist one completed calculation snapshot."""
+        history_forecast_metrics = history_forecast_metrics or {}
         actual_metrics = actual_metrics or {}
         try:
             with self._lock:
@@ -171,6 +177,8 @@ class DataRecorder:
                             stored_energy_wh,
                             reserved_energy_wh,
                             free_capacity_wh,
+                            predicted_production_w,
+                            predicted_consumption_w,
                             actual_production_w,
                             actual_consumption_w,
                             actual_battery_w,
@@ -182,7 +190,7 @@ class DataRecorder:
                             consumption_json,
                             net_consumption_json,
                             metadata_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             created_at_ts,
@@ -192,6 +200,8 @@ class DataRecorder:
                             stored_energy_wh,
                             reserved_energy_wh,
                             free_capacity_wh,
+                            history_forecast_metrics.get('predicted_production_w'),
+                            history_forecast_metrics.get('predicted_consumption_w'),
                             actual_metrics.get('actual_production_w'),
                             actual_metrics.get('actual_consumption_w'),
                             actual_metrics.get('actual_battery_w'),
@@ -254,8 +264,12 @@ class DataRecorder:
             SELECT
                 created_at_ts,
                 soc_percent,
+                predicted_production_w,
+                predicted_consumption_w,
                 actual_production_w,
+                actual_grid_w,
                 actual_consumption_w,
+                metadata_json,
                 production_json,
                 consumption_json
             FROM calculation_runs
@@ -276,14 +290,31 @@ class DataRecorder:
 
         entries = []
         for row in rows:
+            metadata = self._from_json(row["metadata_json"], {})
+            interval_minutes = metadata.get("interval_minutes", 60)
             production = self._from_json(row["production_json"], [])
             consumption = self._from_json(row["consumption_json"], [])
             entries.append({
                 "created_at_ts": row["created_at_ts"],
                 "soc_percent": row["soc_percent"],
-                "predicted_production": production[0] if production else None,
-                "predicted_consumption": consumption[0] if consumption else None,
+                "predicted_production": (
+                    row["predicted_production_w"]
+                    if row["predicted_production_w"] is not None
+                    else _interval_energy_to_power(
+                        production[0] if production else None,
+                        interval_minutes,
+                    )
+                ),
+                "predicted_consumption": (
+                    row["predicted_consumption_w"]
+                    if row["predicted_consumption_w"] is not None
+                    else _interval_energy_to_power(
+                        consumption[0] if consumption else None,
+                        interval_minutes,
+                    )
+                ),
                 "actual_production": row["actual_production_w"],
+                "actual_grid": row["actual_grid_w"],
                 "actual_consumption": row["actual_consumption_w"],
             })
         return entries
@@ -335,6 +366,8 @@ class DataRecorder:
             "stored_energy_wh": row["stored_energy_wh"],
             "reserved_energy_wh": row["reserved_energy_wh"],
             "free_capacity_wh": row["free_capacity_wh"],
+            "predicted_production_w": row["predicted_production_w"],
+            "predicted_consumption_w": row["predicted_consumption_w"],
             "actual_production_w": row["actual_production_w"],
             "actual_consumption_w": row["actual_consumption_w"],
             "actual_battery_w": row["actual_battery_w"],
@@ -356,3 +389,12 @@ def _json_default(value):
     if hasattr(value, "item"):
         return value.item()
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _interval_energy_to_power(value, interval_minutes):
+    """Convert interval energy in Wh to mean power in W for charting."""
+    if value is None:
+        return None
+    if not interval_minutes:
+        return float(value)
+    return float(value) * 60.0 / float(interval_minutes)
