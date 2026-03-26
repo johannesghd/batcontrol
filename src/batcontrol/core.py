@@ -1137,6 +1137,13 @@ class Batcontrol:
 
         run_time = selected_snapshot['created_at_ts']
         projected_flows = self._build_energy_flow_projection(selected_snapshot)
+        dashboard_prices = selected_snapshot.get('prices')
+        if price_source is not None:
+            source_prices = self._source_values_to_series_input(
+                price_source.get('normalized_data')
+            )
+            if source_prices:
+                dashboard_prices = source_prices
 
         def _history_points(key: str) -> List[Dict]:
             points = []
@@ -1193,7 +1200,7 @@ class Batcontrol:
                     self.timezone,
                 ),
                 'prices': build_forecast_series(
-                    selected_snapshot.get('prices'),
+                    dashboard_prices,
                     run_time,
                     self.time_resolution,
                     self.timezone,
@@ -1266,6 +1273,18 @@ class Batcontrol:
             'provider': source_snapshot.get('provider'),
             'source_name': source_snapshot.get('source_name'),
         }
+
+    @staticmethod
+    def _source_values_to_series_input(values):
+        """Convert persisted source-update normalized data into an ordered array."""
+        if values is None:
+            return None
+        if isinstance(values, list):
+            return values
+        if isinstance(values, dict):
+            ordered_items = sorted(values.items(), key=lambda item: int(item[0]))
+            return [value for _, value in ordered_items]
+        return None
 
     def _build_energy_flow_projection(self, selected_snapshot: Dict):
         """Project SOC and resulting grid import/export from selected run state."""

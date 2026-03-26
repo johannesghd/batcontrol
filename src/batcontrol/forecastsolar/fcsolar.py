@@ -118,6 +118,7 @@ class FCSolar(ForecastSolarBaseclass):
                f"watthours/period/{lat}/{lon}/{dec}/{az}/{kwp}{query_string}")
         logger.info(
             'Requesting Information for PV Installation %s', name)
+        logger.debug('Forecast.Solar request URL for %s: %s', name, url)
 
         response = requests.get(url, timeout=60)
         if response.status_code == 200:

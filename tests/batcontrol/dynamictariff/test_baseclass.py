@@ -270,6 +270,39 @@ class TestAwattarProvider:
 
         assert prices == {0: 0.3}
 
+    @patch('batcontrol.dynamictariff.awattar.datetime')
+    def test_awattar_get_prices_native_extends_with_today_and_tomorrow(self, mock_datetime, timezone):
+        """Runtime pricing path should extend beyond the raw next-24h response."""
+        from batcontrol.dynamictariff.awattar import Awattar
+
+        now = timezone.localize(datetime(2024, 6, 20, 18, 0, 0))
+        mock_datetime.datetime.now.return_value = now
+        mock_datetime.datetime.fromtimestamp = datetime.fromtimestamp
+        mock_datetime.datetime.combine = datetime.combine
+        mock_datetime.timedelta = __import__('datetime').timedelta
+        mock_datetime.time = __import__('datetime').time
+
+        provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        provider.set_price_parameters(vat=0.0, price_fees=0.0, price_markup=0.0)
+        provider.store_raw_data({
+            'data': [
+                {'start_timestamp': int(timezone.localize(datetime(2024, 6, 20, 18, 0, 0)).timestamp() * 1000), 'marketprice': 100.0},
+                {'start_timestamp': int(timezone.localize(datetime(2024, 6, 20, 19, 0, 0)).timestamp() * 1000), 'marketprice': 110.0},
+            ]
+        })
+        provider._daily_price_cache = {
+            now.date(): {'fetched_at_ts': 10**12, 'prices': {18: 0.1, 19: 0.11, 23: 0.15}},
+            now.date() + __import__('datetime').timedelta(days=1): {'fetched_at_ts': 10**12, 'prices': {0: 0.2, 1: 0.21}},
+        }
+
+        prices = provider._get_prices_native()
+
+        assert prices[0] == 0.1
+        assert prices[1] == 0.11
+        assert prices[5] == 0.15
+        assert prices[6] == 0.2
+        assert prices[7] == 0.21
+
 
 class TestTibberProvider:
     """Tests for Tibber provider"""

@@ -59,6 +59,7 @@ class Awattar(DynamicTariffBaseclass):
         self.vat = 0
         self.price_fees = 0
         self.price_markup = 0
+        self._daily_price_cache = {}
 
     def set_price_parameters(self, vat: float, price_fees: float, price_markup: float):
         """ Set the extra price parameters for the tariff calculation """
@@ -113,6 +114,11 @@ class Awattar(DynamicTariffBaseclass):
             'Awattar: Retrieved %d hourly prices (hour-aligned)',
             len(prices)
         )
+        prices.update(self._get_extended_day_prices(now, current_hour_start))
+        logger.debug(
+            'Awattar: Returning %d hourly prices after today/tomorrow extension',
+            len(prices)
+        )
         return prices
 
     def _calculate_end_price(self, market_price: float) -> float:
@@ -123,6 +129,11 @@ class Awattar(DynamicTariffBaseclass):
 
     def _get_prices_for_date(self, day: datetime.date) -> dict[int, float]:
         """Get all Awattar prices for a specific local day."""
+        cached = self._daily_price_cache.get(day)
+        now_ts = datetime.datetime.now().timestamp()
+        if cached and now_ts - cached['fetched_at_ts'] < self.min_time_between_updates:
+            return cached['prices']
+
         naive_day_start = datetime.datetime.combine(day, datetime.time(0, 0, 0))
         if hasattr(self.timezone, 'localize'):
             day_start = self.timezone.localize(naive_day_start)
@@ -133,7 +144,30 @@ class Awattar(DynamicTariffBaseclass):
         prices = {}
         for hour_index, item in enumerate(raw_data.get('data', [])):
             prices[hour_index] = self._calculate_end_price(item['marketprice'])
+        self._daily_price_cache[day] = {
+            'fetched_at_ts': now_ts,
+            'prices': prices,
+        }
         return prices
+
+    def _get_extended_day_prices(
+            self,
+            now: datetime.datetime,
+            current_hour_start: datetime.datetime) -> dict[int, float]:
+        """Supplement the rolling feed with full local-day price data."""
+        extended_prices = {}
+        for day_offset in [0, 1]:
+            day = now.date() + datetime.timedelta(days=day_offset)
+            for hour_index, price in self._get_prices_for_date(day).items():
+                timestamp = datetime.datetime.combine(day, datetime.time(hour_index, 0, 0))
+                if hasattr(self.timezone, 'localize'):
+                    timestamp = self.timezone.localize(timestamp)
+                else:
+                    timestamp = timestamp.replace(tzinfo=self.timezone)
+                rel_hour = int((timestamp - current_hour_start).total_seconds() / 3600)
+                if rel_hour >= 0:
+                    extended_prices[rel_hour] = price
+        return extended_prices
 
     def get_prices_for_today(self) -> dict[int, float]:
         """Get all available hourly prices for the current local day."""
