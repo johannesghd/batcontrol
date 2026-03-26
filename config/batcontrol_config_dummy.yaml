@@ -27,6 +27,9 @@ data_recorder:
   enabled: false
   path: logs/batcontrol.sqlite3
 
+#--------------------------
+#  Battery Control
+#--------------------------
 battery_control:
                                  # min_price_difference is the absolute minimum price difference in Euro to justify charging your battery
                                  # if min_price_difference_rel results in a higher price difference, that will be used
