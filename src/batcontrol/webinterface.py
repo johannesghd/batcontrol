@@ -606,9 +606,31 @@ def _build_dashboard_html(title: str) -> str:
         return {{ min, max }};
       }}
 
+      function roundUp(value, step) {{
+        if (!step || step <= 0) return value;
+        return Math.ceil(value / step) * step;
+      }}
+
+      function roundDown(value, step) {{
+        if (!step || step <= 0) return value;
+        return Math.floor(value / step) * step;
+      }}
+
       const leftBounds = options.leftBounds || getBounds(primaryLeftSeries.flatMap(item => item.points.map(point => point.value)), !!options.leftIncludeZero);
       const rightBounds = options.rightBounds || getBounds(rightValues);
       const socBounds = options.socBounds || {{ min: 0, max: 100 }};
+      if (options.leftMaxStep) {{
+        leftBounds.max = roundUp(leftBounds.max, options.leftMaxStep);
+        if (leftBounds.min < 0) {{
+          leftBounds.min = roundDown(leftBounds.min, options.leftMaxStep);
+        }}
+      }}
+      if (!options.rightBounds && options.rightMaxStep) {{
+        rightBounds.max = roundUp(rightBounds.max, options.rightMaxStep);
+        if (rightBounds.min < 0) {{
+          rightBounds.min = roundDown(rightBounds.min, options.rightMaxStep);
+        }}
+      }}
       const leftSpan = Math.max(leftBounds.max - leftBounds.min, 1);
       const rightSpan = Math.max(rightBounds.max - rightBounds.min, 1);
       const socSpan = Math.max(socBounds.max - socBounds.min, 1);
@@ -643,6 +665,21 @@ def _build_dashboard_html(title: str) -> str:
           const socValue = socBounds.min + (socSpan / 4) * i;
           svg += `<text x="${{width - 4}}" y="${{y + 4}}" text-anchor="end" font-size="12" fill="${{COLORS.muted}}">${{fmtNumber(socValue, options.socYDigits ?? 0)}}</text>`;
         }}
+      }}
+
+      function addZeroLine(bounds, yScale) {{
+        if (bounds.min <= 0 && bounds.max >= 0) {{
+          const y = yScale(0);
+          svg += `<line x1="${{pad.left}}" y1="${{y}}" x2="${{width - pad.right}}" y2="${{y}}" stroke="${{COLORS.ink}}" stroke-opacity="0.35" stroke-width="2" />`;
+        }}
+      }}
+
+      addZeroLine(leftBounds, yScaleLeft);
+      if (options.rightAxis && rightValues.length) {{
+        addZeroLine(rightBounds, yScaleRight);
+      }}
+      if (hasSocAxis && socValues.length) {{
+        addZeroLine(socBounds, yScaleSoc);
       }}
 
       const tickCount = 6;
@@ -825,7 +862,9 @@ def _build_dashboard_html(title: str) -> str:
         minHoursSpan: 36,
         domainMode: 'future',
         leftIncludeZero: true,
+        leftMaxStep: 500,
         rightAxis: true,
+        rightMaxStep: 50,
         yDigits: 0,
         rightYDigits: 2,
         socBounds: {{ min: 0, max: 100 }},
@@ -842,6 +881,7 @@ def _build_dashboard_html(title: str) -> str:
         selectedTimestamp: data.selected_run ? data.selected_run.timestamp : null,
         minHoursSpan: 36,
         domainMode: 'history',
+        leftMaxStep: 500,
         yDigits: 0,
         rightAxis: true,
         rightYDigits: 0,
