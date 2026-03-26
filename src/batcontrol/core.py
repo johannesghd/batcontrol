@@ -1069,6 +1069,13 @@ class Batcontrol:
             },
         )
 
+    def _get_dashboard_query_limit(self) -> int:
+        """Return a row limit large enough for the configured dashboard history window."""
+        expected_rows = int(
+            self.dashboard_history_days * 24 * 3600 / TIME_BETWEEN_EVALUATIONS
+        ) + 1
+        return max(500, expected_rows)
+
     def get_dashboard_snapshot(self, at_timestamp: Optional[float] = None) -> Dict:
         """Build the JSON payload consumed by the dashboard UI."""
         selected_snapshot = None
@@ -1076,6 +1083,7 @@ class Batcontrol:
         history_entries = []
         price_source = None
         solar_source = None
+        query_limit = self._get_dashboard_query_limit()
 
         if self.data_recorder is not None:
             selected_snapshot = self.data_recorder.get_calculation_snapshot(at_timestamp)
@@ -1085,11 +1093,11 @@ class Batcontrol:
                 since_ts = selected_ts - self.dashboard_history_days * 24 * 3600
             timeline_entries = self.data_recorder.get_calculation_timeline(
                 since_ts=since_ts,
-                limit=500,
+                limit=query_limit,
             )
             history_entries = self.data_recorder.get_history_series(
                 since_ts=since_ts,
-                limit=500,
+                limit=query_limit,
             )
             if selected_snapshot is not None:
                 selected_ts = selected_snapshot['created_at_ts']

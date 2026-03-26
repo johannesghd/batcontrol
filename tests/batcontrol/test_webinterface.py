@@ -108,6 +108,15 @@ def test_energy_flow_projection_respects_pv_charge_limit_mode():
     assert projection['grid'] == [150.0, 250.0]
 
 
+def test_dashboard_query_limit_scales_with_history_days():
+    """Dashboard queries should not truncate multi-day history to 500 rows."""
+    bc = object.__new__(Batcontrol)
+    bc.dashboard_history_days = 7
+
+    assert bc._get_dashboard_query_limit() > 500
+    assert bc._get_dashboard_query_limit() == 3361
+
+
 @patch('batcontrol.core.tariff_factory.create_tarif_provider')
 @patch('batcontrol.core.inverter_factory.create_inverter')
 @patch('batcontrol.core.solar_factory.create_solar_provider')
