@@ -503,6 +503,7 @@ def _build_dashboard_html(title: str) -> str:
       productionPred: getCss('--accent-prod-pred'),
       consumptionPred: getCss('--accent-cons-pred'),
       grid: getCss('--grid'),
+      ink: getCss('--ink'),
       muted: getCss('--muted'),
     }};
 
@@ -864,7 +865,7 @@ def _build_dashboard_html(title: str) -> str:
         leftIncludeZero: true,
         leftMaxStep: 500,
         rightAxis: true,
-        rightMaxStep: 50,
+        rightMaxStep: 5,
         yDigits: 0,
         rightYDigits: 2,
         socBounds: {{ min: 0, max: 100 }},
