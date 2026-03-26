@@ -374,10 +374,13 @@ class TestAwattarProvider:
 
         prices = provider._get_stekker_forecast_for_date(datetime(2026, 3, 27).date())
 
-        assert prices == {
-            timezone.localize(datetime(2026, 3, 27, 0, 0, 0)): 0.2184,
-            timezone.localize(datetime(2026, 3, 27, 1, 0, 0)): 0.21972,
-        }
+        assert len(prices) == 2
+        assert abs(
+            prices[timezone.localize(datetime(2026, 3, 27, 0, 0, 0))] - 0.2184
+        ) < 0.000001
+        assert abs(
+            prices[timezone.localize(datetime(2026, 3, 27, 1, 0, 0))] - 0.21972
+        ) < 0.000001
 
 
 class TestTibberProvider:
