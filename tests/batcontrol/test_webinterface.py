@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytz
 
-from batcontrol.core import Batcontrol, MODE_FORCE_CHARGING
+from batcontrol.core import Batcontrol, MODE_FORCE_CHARGING, MODE_LIMIT_BATTERY_CHARGE_RATE
 from batcontrol.datastore import DataRecorder
 from batcontrol.webinterface import align_timestamp, build_forecast_series
 
@@ -85,6 +85,27 @@ def test_energy_flow_projection_handles_signed_grid_power():
 
     assert projection['soc'] == [80.0, 100.0, 100.0, 50.0]
     assert projection['grid'] == [100.0, 100.0, 0.0, -200.0]
+
+
+def test_energy_flow_projection_respects_pv_charge_limit_mode():
+    """Projection should cap battery charging when mode 8 stores a PV charge limit."""
+    bc = object.__new__(Batcontrol)
+    bc.time_resolution = 60
+    projection = Batcontrol._build_energy_flow_projection(
+        bc,
+        {
+            'stored_energy_wh': 800.0,
+            'free_capacity_wh': 200.0,
+            'reserved_energy_wh': 200.0,
+            'mode': MODE_LIMIT_BATTERY_CHARGE_RATE,
+            'charge_rate_w': 0,
+            'net_consumption': [-300.0, -300.0],
+            'metadata': {'limit_battery_charge_rate_w': 150.0},
+        }
+    )
+
+    assert projection['soc'] == [80.0, 95.0]
+    assert projection['grid'] == [150.0, 250.0]
 
 
 @patch('batcontrol.core.tariff_factory.create_tarif_provider')

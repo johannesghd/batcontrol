@@ -65,6 +65,7 @@ class Batcontrol:
         # -1 = charge from grid , 0 = avoid discharge , 8 = limit battery charge, 10 = discharge allowed
         self.last_mode = None
         self.last_charge_rate = 0
+        self.last_limit_battery_charge_rate = -1
         self._limit_battery_charge_rate = -1  # Dynamic battery charge rate limit (-1 = no limit)
         self.last_prices = None
         self.last_consumption = None
@@ -614,12 +615,14 @@ class Batcontrol:
         logger.info('Mode: Allow Discharging')
         self.inverter.set_mode_allow_discharge()
         self.__set_mode(MODE_ALLOW_DISCHARGING)
+        self.last_limit_battery_charge_rate = -1
 
     def avoid_discharging(self):
         """ Avoid discharging the battery """
         logger.info('Mode: Avoid Discharging')
         self.inverter.set_mode_avoid_discharge()
         self.__set_mode(MODE_AVOID_DISCHARGING)
+        self.last_limit_battery_charge_rate = -1
 
     def force_charge(self, charge_rate=500):
         """ Force the battery to charge with a given rate """
@@ -629,6 +632,7 @@ class Batcontrol:
         self.inverter.set_mode_force_charge(charge_rate)
         self.__set_mode(MODE_FORCE_CHARGING)
         self.__set_charge_rate(charge_rate)
+        self.last_limit_battery_charge_rate = -1
 
     def limit_battery_charge_rate(self, limit_charge_rate: int = 0):
         """ Limit PV charging rate while allowing battery discharge
@@ -658,6 +662,7 @@ class Batcontrol:
         logger.info('Mode: Limit Battery Charge Rate to %d W, discharge allowed', effective_limit)
         self.inverter.set_mode_limit_battery_charge(effective_limit)
         self.__set_mode(MODE_LIMIT_BATTERY_CHARGE_RATE)
+        self.last_limit_battery_charge_rate = effective_limit
 
         # Publish limit via MQTT
         if self.mqtt_api is not None:
@@ -1060,6 +1065,7 @@ class Batcontrol:
             metadata={
                 'interval_minutes': self.time_resolution,
                 'mode_label': self._format_mode(self.last_mode),
+                'limit_battery_charge_rate_w': self.last_limit_battery_charge_rate,
             },
         )
 
@@ -1110,6 +1116,7 @@ class Batcontrol:
                     'metadata': {
                         'interval_minutes': self.time_resolution,
                         'mode_label': self._format_mode(self.last_mode),
+                        'limit_battery_charge_rate_w': self.last_limit_battery_charge_rate,
                     },
                 }
             if not timeline_entries:
@@ -1260,6 +1267,8 @@ class Batcontrol:
         reserved_energy = selected_snapshot.get('reserved_energy_wh')
         mode = selected_snapshot.get('mode')
         charge_rate_w = selected_snapshot.get('charge_rate_w') or 0
+        metadata = selected_snapshot.get('metadata') or {}
+        limit_battery_charge_rate_w = metadata.get('limit_battery_charge_rate_w', -1)
 
         if (
             stored_energy is None
@@ -1269,16 +1278,14 @@ class Batcontrol:
         ):
             return {
                 'soc': [],
-                'export': [],
-                'import': [],
+                'grid': [],
             }
 
         max_capacity = stored_energy + free_capacity
         if max_capacity <= 0:
             return {
                 'soc': [],
-                'export': [],
-                'import': [],
+                'grid': [],
             }
 
         min_energy = 0.0 if reserved_energy is None or reserved_energy < 0 else float(reserved_energy)
@@ -1310,7 +1317,17 @@ class Batcontrol:
             net_value = float(interval_net)
             if net_value < 0:
                 surplus = -net_value
-                battery_charge = min(max_capacity - energy, surplus)
+                battery_charge_limit = surplus
+                if (
+                    mode == MODE_LIMIT_BATTERY_CHARGE_RATE
+                    and limit_battery_charge_rate_w is not None
+                    and limit_battery_charge_rate_w >= 0
+                ):
+                    battery_charge_limit = min(
+                        battery_charge_limit,
+                        limit_battery_charge_rate_w * interval_hours,
+                    )
+                battery_charge = min(max_capacity - energy, battery_charge_limit)
                 energy += battery_charge
                 predicted_export = surplus - battery_charge
             elif net_value > 0:

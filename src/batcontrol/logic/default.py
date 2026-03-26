@@ -29,6 +29,7 @@ class DefaultLogic(LogicInterface):
         self.round_price_digits = 4  # Default rounding for prices
         self.soften_price_difference_on_charging = False
         self.soften_price_difference_on_charging_factor = 5.0  # Default factor
+        self.max_future_grid_export_power = 0  # W, 0 disables export flattening
         self.timezone = timezone
         self.interval_minutes = interval_minutes
         self.common = CommonLogic.get_instance()
@@ -102,10 +103,22 @@ class DefaultLogic(LogicInterface):
 
         # ensure availability of data
         max_slot = min(len(net_consumption), len(prices))
+        export_charge_limit = self.__get_export_flatten_charge_limit(
+            calc_input,
+            net_consumption[:max_slot],
+        )
 
         if self.__is_discharge_allowed(calc_input, net_consumption, prices, calc_timestamp):
             inverter_control_settings.allow_discharge = True
-            inverter_control_settings.limit_battery_charge_rate = -1 # no limit
+            inverter_control_settings.limit_battery_charge_rate = (
+                export_charge_limit if export_charge_limit is not None else -1
+            )
+            if export_charge_limit is not None:
+                logger.info(
+                    '[Rule] Limiting PV battery charge to %d W to flatten export to %d W',
+                    export_charge_limit,
+                    self.max_future_grid_export_power,
+                )
 
             return inverter_control_settings
         else:  # discharge not allowed
@@ -187,11 +200,67 @@ class DefaultLogic(LogicInterface):
                 #self.force_charge(charge_rate)
                 inverter_control_settings.charge_from_grid = True
                 inverter_control_settings.charge_rate = charge_rate
+            elif export_charge_limit is not None:
+                inverter_control_settings.allow_discharge = True
+                inverter_control_settings.limit_battery_charge_rate = export_charge_limit
+                logger.info(
+                    '[Rule] Limiting PV battery charge to %d W to flatten export to %d W',
+                    export_charge_limit,
+                    self.max_future_grid_export_power,
+                )
             else:
                 # keep current charge level. recharge if solar surplus available
                 inverter_control_settings.allow_discharge = False
         #
         return inverter_control_settings
+
+    def __get_export_flatten_charge_limit(
+            self,
+            calc_input: CalculationInput,
+            net_consumption: np.ndarray) -> Optional[int]:
+        """Return a PV charge limit that starts exporting earlier to cap future export peaks."""
+        target_export_power = getattr(self, 'max_future_grid_export_power', 0)
+        if target_export_power <= 0 or len(net_consumption) == 0:
+            return None
+
+        current_net_consumption = float(net_consumption[0])
+        if current_net_consumption >= 0:
+            return None
+
+        current_surplus_energy = -current_net_consumption
+        if not self.__will_future_export_exceed_target(calc_input, net_consumption, target_export_power):
+            return None
+
+        target_export_energy = target_export_power * self.interval_minutes / 60.0
+        charge_limit_energy = max(0.0, current_surplus_energy - target_export_energy)
+        charge_limit_power = charge_limit_energy * 60.0 / self.interval_minutes
+        return int(round(charge_limit_power))
+
+    def __will_future_export_exceed_target(
+            self,
+            calc_input: CalculationInput,
+            net_consumption: np.ndarray,
+            target_export_power: int) -> bool:
+        """Check whether unrestricted charging would lead to export above the target."""
+        max_capacity = calc_input.stored_energy + calc_input.free_capacity
+        if max_capacity <= 0:
+            return False
+
+        target_export_energy = target_export_power * self.interval_minutes / 60.0
+        stored_energy = float(calc_input.stored_energy)
+
+        for interval_net in net_consumption:
+            if interval_net >= 0:
+                continue
+
+            surplus_energy = -float(interval_net)
+            battery_charge = min(max_capacity - stored_energy, surplus_energy)
+            stored_energy += battery_charge
+            predicted_export = surplus_energy - battery_charge
+            if predicted_export > target_export_energy:
+                return True
+
+        return False
 
     def __is_discharge_allowed(self, calc_input: CalculationInput,
                                     net_consumption: np.ndarray,

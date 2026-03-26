@@ -326,5 +326,31 @@ class TestDefaultLogic(unittest.TestCase):
             self.assertGreater(result.charge_rate, expected_charge_rate_before_multiplier,
                              "Charge rate should be adjusted by charge_rate_multiplier")
 
+    def test_limit_pv_charge_rate_to_flatten_future_export(self):
+        """Future export peaks should trigger mode 8 with a reduced PV charge limit."""
+        self.logic.max_future_grid_export_power = 650
+
+        stored_energy = 8000
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy, self.max_capacity
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([0.0, 0.0]),
+            production=np.array([2000.0, 3000.0]),
+            prices={0: 0.20, 1: 0.30},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(self.logic.calculate(calc_input, calc_timestamp))
+        result = self.logic.get_inverter_control_settings()
+
+        self.assertTrue(result.allow_discharge)
+        self.assertFalse(result.charge_from_grid)
+        self.assertEqual(result.limit_battery_charge_rate, 1350)
+
 if __name__ == '__main__':
     unittest.main()

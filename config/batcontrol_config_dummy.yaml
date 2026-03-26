@@ -49,6 +49,9 @@ battery_control_expert:
   round_price_digits: 4 # round price to n digits after the comma
   production_offset_percent: 1.0 # Adjust production forecast by a percentage (1.0 = 100%, 0.8 = 80%, etc.)
                                  # Useful for winter mode when solar panels are covered with snow
+  max_future_grid_export_power: 0 # W. 0 disables export flattening.
+                                   # If > 0, batcontrol may switch to MODE_LIMIT_BATTERY_CHARGE_RATE (8)
+                                   # to start exporting earlier and keep predicted later export peaks near this value.
 
 #--------------------------
 #  Inverter
