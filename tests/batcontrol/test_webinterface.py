@@ -63,6 +63,27 @@ def test_build_forecast_series_aligns_points_to_interval():
     assert series[1]["timestamp"] - series[0]["timestamp"] == 15 * 60
 
 
+def test_energy_flow_projection_handles_export_and_import():
+    """Projection should produce SOC, grid export, and grid import series."""
+    bc = object.__new__(Batcontrol)
+    bc.time_resolution = 60
+    projection = Batcontrol._build_energy_flow_projection(
+        bc,
+        {
+            'stored_energy_wh': 800.0,
+            'free_capacity_wh': 200.0,
+            'reserved_energy_wh': 200.0,
+            'mode': 10,
+            'charge_rate_w': 0,
+            'net_consumption': [-300.0, -100.0, 500.0, 500.0],
+        }
+    )
+
+    assert projection['soc'] == [80.0, 100.0, 100.0, 50.0]
+    assert projection['export'] == [100.0, 100.0, 0.0, 0.0]
+    assert projection['import'] == [0.0, 0.0, 0.0, 200.0]
+
+
 @patch('batcontrol.core.tariff_factory.create_tarif_provider')
 @patch('batcontrol.core.inverter_factory.create_inverter')
 @patch('batcontrol.core.solar_factory.create_solar_provider')

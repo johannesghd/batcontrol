@@ -1100,6 +1100,7 @@ class Batcontrol:
                 }]
 
         run_time = selected_snapshot['created_at_ts']
+        projected_flows = self._build_energy_flow_projection(selected_snapshot)
 
         def _history_points(key: str) -> List[Dict]:
             points = []
@@ -1168,7 +1169,19 @@ class Batcontrol:
                     self.timezone,
                 ),
                 'predicted_soc': build_forecast_series(
-                    self._build_predicted_soc_series(selected_snapshot),
+                    projected_flows['soc'],
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
+                'predicted_grid_export': build_forecast_series(
+                    projected_flows['export'],
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
+                'predicted_grid_import': build_forecast_series(
+                    projected_flows['import'],
                     run_time,
                     self.time_resolution,
                     self.timezone,
@@ -1217,12 +1230,14 @@ class Batcontrol:
             'source_name': source_snapshot.get('source_name'),
         }
 
-    @staticmethod
-    def _build_predicted_soc_series(selected_snapshot: Dict):
-        """Build a simple SOC forecast from stored energy and predicted net consumption."""
+    def _build_energy_flow_projection(self, selected_snapshot: Dict):
+        """Project SOC and resulting grid import/export from selected run state."""
         net_consumption = selected_snapshot.get('net_consumption') or []
         stored_energy = selected_snapshot.get('stored_energy_wh')
         free_capacity = selected_snapshot.get('free_capacity_wh')
+        reserved_energy = selected_snapshot.get('reserved_energy_wh')
+        mode = selected_snapshot.get('mode')
+        charge_rate_w = selected_snapshot.get('charge_rate_w') or 0
 
         if (
             stored_energy is None
@@ -1230,17 +1245,67 @@ class Batcontrol:
             or stored_energy < 0
             or free_capacity < 0
         ):
-            return []
+            return {
+                'soc': [],
+                'export': [],
+                'import': [],
+            }
 
         max_capacity = stored_energy + free_capacity
         if max_capacity <= 0:
-            return []
+            return {
+                'soc': [],
+                'export': [],
+                'import': [],
+            }
 
-        forecast = []
+        min_energy = 0.0 if reserved_energy is None or reserved_energy < 0 else float(reserved_energy)
+        min_energy = max(0.0, min(min_energy, max_capacity))
+        allow_discharge = mode in [
+            MODE_ALLOW_DISCHARGING,
+            MODE_LIMIT_BATTERY_CHARGE_RATE,
+        ]
+        force_grid_charge = mode == MODE_FORCE_CHARGING
+        interval_hours = self.time_resolution / 60.0
+
+        soc_forecast = []
+        export_forecast = []
+        import_forecast = []
         energy = float(stored_energy)
         for interval_net in net_consumption:
-            forecast.append(energy / max_capacity * 100.0)
-            energy -= float(interval_net)
-            energy = max(0.0, min(max_capacity, energy))
+            soc_forecast.append(energy / max_capacity * 100.0)
+            predicted_export = 0.0
+            predicted_import = 0.0
 
-        return forecast
+            if force_grid_charge and charge_rate_w > 0 and energy < max_capacity:
+                grid_charge_energy = min(
+                    max_capacity - energy,
+                    charge_rate_w * interval_hours
+                )
+                energy += grid_charge_energy
+                predicted_import += grid_charge_energy
+
+            net_value = float(interval_net)
+            if net_value < 0:
+                surplus = -net_value
+                battery_charge = min(max_capacity - energy, surplus)
+                energy += battery_charge
+                predicted_export = surplus - battery_charge
+            elif net_value > 0:
+                deficit = net_value
+                if allow_discharge and energy > min_energy:
+                    battery_discharge = min(energy - min_energy, deficit)
+                    energy -= battery_discharge
+                    predicted_import += deficit - battery_discharge
+                else:
+                    predicted_import += deficit
+
+            energy = max(0.0, min(max_capacity, energy))
+            export_forecast.append(predicted_export)
+            import_forecast.append(predicted_import)
+
+        return {
+            'soc': soc_forecast,
+            'export': export_forecast,
+            'import': import_forecast,
+        }

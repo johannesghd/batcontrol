@@ -166,6 +166,8 @@ def _build_dashboard_html(title: str) -> str:
       --accent-net: #14b8a6;
       --accent-price: #ef4444;
       --accent-soc-forecast: #22c55e;
+      --accent-export: #f97316;
+      --accent-import: #38bdf8;
       --accent-soc: #8b5cf6;
       --accent-prod: #f97316;
       --accent-cons: #10b981;
@@ -187,6 +189,8 @@ def _build_dashboard_html(title: str) -> str:
         --accent-net: #2dd4bf;
         --accent-price: #fb7185;
         --accent-soc-forecast: #4ade80;
+        --accent-export: #fb923c;
+        --accent-import: #7dd3fc;
         --accent-soc: #a78bfa;
         --accent-prod: #fb923c;
         --accent-cons: #34d399;
@@ -447,6 +451,8 @@ def _build_dashboard_html(title: str) -> str:
         <span><i style="background: var(--accent-load);"></i>Consumption</span>
         <span><i style="background: var(--accent-pv);"></i>PV forecast</span>
         <span><i style="background: var(--accent-net);"></i>Net consumption</span>
+        <span><i style="background: var(--accent-export);"></i>Predicted grid export</span>
+        <span><i style="background: var(--accent-import);"></i>Predicted grid import</span>
         <span><i style="background: var(--accent-price);"></i>Price</span>
         <span><i style="background: var(--accent-soc-forecast);"></i>Predicted SOC</span>
       </div>
@@ -489,6 +495,8 @@ def _build_dashboard_html(title: str) -> str:
       net: getCss('--accent-net'),
       price: getCss('--accent-price'),
       socForecast: getCss('--accent-soc-forecast'),
+      export: getCss('--accent-export'),
+      import: getCss('--accent-import'),
       soc: getCss('--accent-soc'),
       production: getCss('--accent-prod'),
       consumption: getCss('--accent-cons'),
@@ -759,6 +767,8 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.load, points: data.today.load_profile }},
         {{ color: COLORS.pv, points: data.today.pv_forecast }},
         {{ color: COLORS.net, points: data.today.net_consumption, dash: '8 6' }},
+        {{ color: COLORS.export, points: data.today.predicted_grid_export, dash: '3 5' }},
+        {{ color: COLORS.import, points: data.today.predicted_grid_import, dash: '10 6' }},
         {{ color: COLORS.price, points: transformSeries(data.today.prices, 100), axis: 'right', step: true }},
         {{ color: COLORS.socForecast, points: data.today.predicted_soc, axis: 'soc', dash: '7 5' }},
       ], {{
