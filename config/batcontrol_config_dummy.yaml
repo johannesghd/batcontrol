@@ -135,6 +135,7 @@ mqtt:
 #  Supported providers:
 #  - fcsolarapi: Third-party solar forecast API (configured below, default)
 #  - solarprognose.de : needs an API key, see https://www.solarprognose.de/solar-api/ for details
+#  - solcast-hobbyist: Solcast rooftop sites API, supports up to two resource IDs
 #  - homeassistant-solar-forecast-ml: HomeAssistant Solar Forecast ML integration (HACS)
 #  - evcc: local instance of evcc via REST API
 #
@@ -153,6 +154,16 @@ pvinstallations:
     azimuth: 0                        # -90:East, 0:South, 90:West -180..180
     kWp: 10.0                         # power in kWp - update with your actual system size
     #horizon:                         # leave empty for default PVGIS horizon
+
+  # ALTERNATIVE: Solcast hobbyist - one entry per rooftop resource ID
+  # - name: Solcast Roof East
+  #   resource_id: abc123
+  #   api_key: YOUR_SOLCAST_API_KEY
+  #   hours: 168
+  # - name: Solcast Roof West
+  #   resource_id: def456
+  #   api_key: YOUR_SOLCAST_API_KEY
+  #   hours: 168
 
   # ALTERNATIVE: HomeAssistant Solar Forecast ML - Uses ML forecast from HomeAssistant
   # Uncomment this section to use HomeAssistant Solar Forecast ML integration
