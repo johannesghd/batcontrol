@@ -165,6 +165,7 @@ def _build_dashboard_html(title: str) -> str:
       --accent-pv: #f59e0b;
       --accent-net: #14b8a6;
       --accent-price: #ef4444;
+      --accent-soc-forecast: #22c55e;
       --accent-soc: #8b5cf6;
       --accent-prod: #f97316;
       --accent-cons: #10b981;
@@ -185,6 +186,7 @@ def _build_dashboard_html(title: str) -> str:
         --accent-pv: #fbbf24;
         --accent-net: #2dd4bf;
         --accent-price: #fb7185;
+        --accent-soc-forecast: #4ade80;
         --accent-soc: #a78bfa;
         --accent-prod: #fb923c;
         --accent-cons: #34d399;
@@ -446,11 +448,13 @@ def _build_dashboard_html(title: str) -> str:
         <span><i style="background: var(--accent-pv);"></i>PV forecast</span>
         <span><i style="background: var(--accent-net);"></i>Net consumption</span>
         <span><i style="background: var(--accent-price);"></i>Price</span>
+        <span><i style="background: var(--accent-soc-forecast);"></i>Predicted SOC</span>
       </div>
       <div id="combined-chart"></div>
       <div class="footer">
         <span>Left axis: W</span>
-        <span>Right axis: ct/kWh</span>
+        <span>Inner right axis: ct/kWh</span>
+        <span>Outer right axis: SOC %</span>
       </div>
     </section>
 
@@ -484,6 +488,7 @@ def _build_dashboard_html(title: str) -> str:
       pv: getCss('--accent-pv'),
       net: getCss('--accent-net'),
       price: getCss('--accent-price'),
+      socForecast: getCss('--accent-soc-forecast'),
       soc: getCss('--accent-soc'),
       production: getCss('--accent-prod'),
       consumption: getCss('--accent-cons'),
@@ -541,9 +546,10 @@ def _build_dashboard_html(title: str) -> str:
 
       const width = 1080;
       const height = options.height || 260;
+      const hasSocAxis = series.some(item => item.axis === 'soc');
       const pad = {{
         top: 16,
-        right: options.rightAxis ? 58 : 18,
+        right: hasSocAxis ? 96 : (options.rightAxis ? 58 : 18),
         bottom: 36,
         left: 58
       }};
@@ -555,8 +561,11 @@ def _build_dashboard_html(title: str) -> str:
 
       const leftSeries = series.filter(item => item.axis !== 'right');
       const rightSeries = series.filter(item => item.axis === 'right');
+      const socSeries = series.filter(item => item.axis === 'soc');
+      const primaryLeftSeries = series.filter(item => !item.axis);
       const leftValues = leftSeries.flatMap(item => item.points.map(point => point.value));
       const rightValues = rightSeries.flatMap(item => item.points.map(point => point.value));
+      const socValues = socSeries.flatMap(item => item.points.map(point => point.value));
 
       function getBounds(values, includeZero = false) {{
         if (!values.length) return {{ min: 0, max: 1 }};
@@ -573,10 +582,12 @@ def _build_dashboard_html(title: str) -> str:
         return {{ min, max }};
       }}
 
-      const leftBounds = options.leftBounds || getBounds(leftValues, !!options.leftIncludeZero);
+      const leftBounds = options.leftBounds || getBounds(primaryLeftSeries.flatMap(item => item.points.map(point => point.value)), !!options.leftIncludeZero);
       const rightBounds = options.rightBounds || getBounds(rightValues);
+      const socBounds = options.socBounds || {{ min: 0, max: 100 }};
       const leftSpan = Math.max(leftBounds.max - leftBounds.min, 1);
       const rightSpan = Math.max(rightBounds.max - rightBounds.min, 1);
+      const socSpan = Math.max(socBounds.max - socBounds.min, 1);
 
       function xScale(ts) {{
         return pad.left + ((ts - minX) / xSpan) * (width - pad.left - pad.right);
@@ -590,6 +601,10 @@ def _build_dashboard_html(title: str) -> str:
         return height - pad.bottom - ((value - rightBounds.min) / rightSpan) * (height - pad.top - pad.bottom);
       }}
 
+      function yScaleSoc(value) {{
+        return height - pad.bottom - ((value - socBounds.min) / socSpan) * (height - pad.top - pad.bottom);
+      }}
+
       let svg = `<svg viewBox="0 0 ${{width}} ${{height}}" role="img" aria-label="chart">`;
       for (let i = 0; i <= 4; i += 1) {{
         const yValue = leftBounds.min + (leftSpan / 4) * i;
@@ -599,6 +614,10 @@ def _build_dashboard_html(title: str) -> str:
         if (options.rightAxis && rightValues.length) {{
           const rightValue = rightBounds.min + (rightSpan / 4) * i;
           svg += `<text x="${{width - pad.right + 8}}" y="${{y + 4}}" text-anchor="start" font-size="12" fill="${{COLORS.muted}}">${{fmtNumber(rightValue, options.rightYDigits ?? 3)}}</text>`;
+        }}
+        if (hasSocAxis && socValues.length) {{
+          const socValue = socBounds.min + (socSpan / 4) * i;
+          svg += `<text x="${{width - 4}}" y="${{y + 4}}" text-anchor="end" font-size="12" fill="${{COLORS.muted}}">${{fmtNumber(socValue, options.socYDigits ?? 0)}}</text>`;
         }}
       }}
 
@@ -613,7 +632,9 @@ def _build_dashboard_html(title: str) -> str:
 
       series.forEach(item => {{
         if (!item.points.length) return;
-        const yScale = item.axis === 'right' ? yScaleRight : yScaleLeft;
+        let yScale = yScaleLeft;
+        if (item.axis === 'right') yScale = yScaleRight;
+        if (item.axis === 'soc') yScale = yScaleSoc;
         const path = item.step
           ? buildStepPath(item.points, xScale, yScale)
           : item.points.map((point, index) => `${{index === 0 ? 'M' : 'L'}} ${{xScale(point.timestamp)}} ${{yScale(point.value)}}`).join(' ');
@@ -739,12 +760,15 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.pv, points: data.today.pv_forecast }},
         {{ color: COLORS.net, points: data.today.net_consumption, dash: '8 6' }},
         {{ color: COLORS.price, points: transformSeries(data.today.prices, 100), axis: 'right', step: true }},
+        {{ color: COLORS.socForecast, points: data.today.predicted_soc, axis: 'soc', dash: '7 5' }},
       ], {{
         height: 380,
         leftIncludeZero: true,
         rightAxis: true,
         yDigits: 0,
         rightYDigits: 2,
+        socBounds: {{ min: 0, max: 100 }},
+        socYDigits: 0,
       }});
       renderChart('history-chart', [
         {{ color: COLORS.soc, points: data.history.soc, axis: 'right' }},

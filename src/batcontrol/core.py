@@ -1167,6 +1167,12 @@ class Batcontrol:
                     self.time_resolution,
                     self.timezone,
                 ),
+                'predicted_soc': build_forecast_series(
+                    self._build_predicted_soc_series(selected_snapshot),
+                    run_time,
+                    self.time_resolution,
+                    self.timezone,
+                ),
             },
             'history': {
                 'soc': _history_points('soc_percent'),
@@ -1210,3 +1216,31 @@ class Batcontrol:
             'provider': source_snapshot.get('provider'),
             'source_name': source_snapshot.get('source_name'),
         }
+
+    @staticmethod
+    def _build_predicted_soc_series(selected_snapshot: Dict):
+        """Build a simple SOC forecast from stored energy and predicted net consumption."""
+        net_consumption = selected_snapshot.get('net_consumption') or []
+        stored_energy = selected_snapshot.get('stored_energy_wh')
+        free_capacity = selected_snapshot.get('free_capacity_wh')
+
+        if (
+            stored_energy is None
+            or free_capacity is None
+            or stored_energy < 0
+            or free_capacity < 0
+        ):
+            return []
+
+        max_capacity = stored_energy + free_capacity
+        if max_capacity <= 0:
+            return []
+
+        forecast = []
+        energy = float(stored_energy)
+        for interval_net in net_consumption:
+            forecast.append(energy / max_capacity * 100.0)
+            energy -= float(interval_net)
+            energy = max(0.0, min(max_capacity, energy))
+
+        return forecast
