@@ -45,7 +45,8 @@ def test_data_recorder_history_series_uses_calculation_rows(tmp_path):
     assert len(entries) == 1
     assert entries[0]["created_at_ts"] == 3600
     assert entries[0]["soc_percent"] == 60
-    assert entries[0]["production"] == 1000
+    assert entries[0]["predicted_production"] == 1000
+    assert entries[0]["actual_production"] is None
 
 
 def test_build_forecast_series_aligns_points_to_interval():
@@ -140,6 +141,10 @@ def test_batcontrol_dashboard_snapshot(
             production=bc.last_production,
             consumption=bc.last_consumption,
             net_consumption=bc.last_consumption - bc.last_production,
+            actual_metrics={
+                'actual_production_w': 1180.0,
+                'actual_consumption_w': 760.0,
+            },
         )
 
         snapshot = bc.get_dashboard_snapshot()
@@ -150,7 +155,8 @@ def test_batcontrol_dashboard_snapshot(
         assert len(snapshot['today']['prices']) == 2
         assert len(snapshot['timeline']) == 1
         assert len(snapshot['history']['soc']) == 1
-        assert snapshot['history']['production'][0]['value'] == 1200.0
+        assert snapshot['history']['actual_production'][0]['value'] == 1180.0
+        assert snapshot['history']['predicted_production'][0]['value'] == 1200.0
         assert snapshot['sources']['prices']['provider'] == 'DummyTariff'
     finally:
         bc.shutdown()

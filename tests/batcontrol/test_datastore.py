@@ -56,6 +56,10 @@ def test_data_recorder_persists_rows(tmp_path):
         production=[400],
         consumption=[600],
         net_consumption=[200],
+        actual_metrics={
+            'actual_production_w': 500,
+            'actual_consumption_w': 450,
+        },
     )
 
     with sqlite3.connect(str(db_path)) as connection:
@@ -87,6 +91,10 @@ def test_data_recorder_can_query_snapshot_and_timeline(tmp_path):
         production=[400],
         consumption=[600],
         net_consumption=[200],
+        actual_metrics={
+            'actual_production_w': 900,
+            'actual_consumption_w': 300,
+        },
     )
     recorder.record_calculation(
         created_at_ts=2000.0,
@@ -109,8 +117,14 @@ def test_data_recorder_can_query_snapshot_and_timeline(tmp_path):
     assert len(timeline) == 2
     assert snapshot['created_at_ts'] == 1000.0
     assert snapshot['prices'] == [0.21]
+    assert snapshot['actual_production_w'] == 900
     assert len(history) == 2
-    assert history[1]['production'] == 500
+    assert history[0]['actual_production'] == 900
+    assert history[0]['actual_consumption'] == 300
+    assert history[0]['predicted_production'] == 400
+    assert history[0]['predicted_consumption'] == 600
+    assert history[1]['actual_production'] is None
+    assert history[1]['predicted_production'] == 500
 
 
 def test_tariff_refresh_records_source_update(tmp_path):

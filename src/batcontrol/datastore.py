@@ -55,6 +55,12 @@ class DataRecorder:
                     stored_energy_wh REAL,
                     reserved_energy_wh REAL,
                     free_capacity_wh REAL,
+                    actual_production_w REAL,
+                    actual_consumption_w REAL,
+                    actual_battery_w REAL,
+                    actual_grid_w REAL,
+                    actual_inverter_w REAL,
+                    actual_secondary_wr_w REAL,
                     prices_json TEXT,
                     production_json TEXT,
                     consumption_json TEXT,
@@ -71,11 +77,29 @@ class DataRecorder:
                 "CREATE INDEX IF NOT EXISTS idx_calculation_runs_ts "
                 "ON calculation_runs(created_at_ts)"
             )
+            self._ensure_column(connection, 'calculation_runs', 'actual_production_w', 'REAL')
+            self._ensure_column(connection, 'calculation_runs', 'actual_consumption_w', 'REAL')
+            self._ensure_column(connection, 'calculation_runs', 'actual_battery_w', 'REAL')
+            self._ensure_column(connection, 'calculation_runs', 'actual_grid_w', 'REAL')
+            self._ensure_column(connection, 'calculation_runs', 'actual_inverter_w', 'REAL')
+            self._ensure_column(connection, 'calculation_runs', 'actual_secondary_wr_w', 'REAL')
             connection.commit()
 
     @staticmethod
     def _to_json(value) -> str:
         return json.dumps(value, sort_keys=True, default=_json_default)
+
+    @staticmethod
+    def _ensure_column(connection, table_name: str, column_name: str, column_type: str) -> None:
+        """Add a missing column for forward-compatible schema upgrades."""
+        columns = [
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+        ]
+        if column_name not in columns:
+            connection.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+            )
 
     def record_source_update(
             self,
@@ -130,8 +154,10 @@ class DataRecorder:
             production,
             consumption,
             net_consumption,
+            actual_metrics: dict = None,
             metadata: dict = None) -> None:
         """Persist one completed calculation snapshot."""
+        actual_metrics = actual_metrics or {}
         try:
             with self._lock:
                 with self._connect() as connection:
@@ -145,12 +171,18 @@ class DataRecorder:
                             stored_energy_wh,
                             reserved_energy_wh,
                             free_capacity_wh,
+                            actual_production_w,
+                            actual_consumption_w,
+                            actual_battery_w,
+                            actual_grid_w,
+                            actual_inverter_w,
+                            actual_secondary_wr_w,
                             prices_json,
                             production_json,
                             consumption_json,
                             net_consumption_json,
                             metadata_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             created_at_ts,
@@ -160,6 +192,12 @@ class DataRecorder:
                             stored_energy_wh,
                             reserved_energy_wh,
                             free_capacity_wh,
+                            actual_metrics.get('actual_production_w'),
+                            actual_metrics.get('actual_consumption_w'),
+                            actual_metrics.get('actual_battery_w'),
+                            actual_metrics.get('actual_grid_w'),
+                            actual_metrics.get('actual_inverter_w'),
+                            actual_metrics.get('actual_secondary_wr_w'),
                             self._to_json(prices),
                             self._to_json(production),
                             self._to_json(consumption),
@@ -216,6 +254,8 @@ class DataRecorder:
             SELECT
                 created_at_ts,
                 soc_percent,
+                actual_production_w,
+                actual_consumption_w,
                 production_json,
                 consumption_json
             FROM calculation_runs
@@ -241,8 +281,10 @@ class DataRecorder:
             entries.append({
                 "created_at_ts": row["created_at_ts"],
                 "soc_percent": row["soc_percent"],
-                "production": production[0] if production else None,
-                "consumption": consumption[0] if consumption else None,
+                "predicted_production": production[0] if production else None,
+                "predicted_consumption": consumption[0] if consumption else None,
+                "actual_production": row["actual_production_w"],
+                "actual_consumption": row["actual_consumption_w"],
             })
         return entries
 
@@ -293,6 +335,12 @@ class DataRecorder:
             "stored_energy_wh": row["stored_energy_wh"],
             "reserved_energy_wh": row["reserved_energy_wh"],
             "free_capacity_wh": row["free_capacity_wh"],
+            "actual_production_w": row["actual_production_w"],
+            "actual_consumption_w": row["actual_consumption_w"],
+            "actual_battery_w": row["actual_battery_w"],
+            "actual_grid_w": row["actual_grid_w"],
+            "actual_inverter_w": row["actual_inverter_w"],
+            "actual_secondary_wr_w": row["actual_secondary_wr_w"],
             "prices": self._from_json(row["prices_json"], []),
             "production": self._from_json(row["production_json"], []),
             "consumption": self._from_json(row["consumption_json"], []),

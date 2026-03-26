@@ -168,6 +168,8 @@ def _build_dashboard_html(title: str) -> str:
       --accent-soc: #8b5cf6;
       --accent-prod: #f97316;
       --accent-cons: #10b981;
+      --accent-prod-pred: #fdba74;
+      --accent-cons-pred: #86efac;
       --shadow: 0 20px 60px rgba(23, 34, 56, 0.14);
       --radius: 24px;
     }}
@@ -186,6 +188,8 @@ def _build_dashboard_html(title: str) -> str:
         --accent-soc: #a78bfa;
         --accent-prod: #fb923c;
         --accent-cons: #34d399;
+        --accent-prod-pred: #fcd34d;
+        --accent-cons-pred: #6ee7b7;
         --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
       }}
     }}
@@ -454,8 +458,10 @@ def _build_dashboard_html(title: str) -> str:
       <h2>Recent Run History</h2>
       <div class="legend">
         <span><i style="background: var(--accent-soc);"></i>SOC %</span>
-        <span><i style="background: var(--accent-prod);"></i>Production W</span>
-        <span><i style="background: var(--accent-cons);"></i>Consumption W</span>
+        <span><i style="background: var(--accent-prod);"></i>Actual production W</span>
+        <span><i style="background: var(--accent-prod-pred);"></i>Predicted production W</span>
+        <span><i style="background: var(--accent-cons);"></i>Actual consumption W</span>
+        <span><i style="background: var(--accent-cons-pred);"></i>Predicted consumption W</span>
       </div>
       <div id="history-chart"></div>
       <div class="timeline-wrap">
@@ -481,6 +487,8 @@ def _build_dashboard_html(title: str) -> str:
       soc: getCss('--accent-soc'),
       production: getCss('--accent-prod'),
       consumption: getCss('--accent-cons'),
+      productionPred: getCss('--accent-prod-pred'),
+      consumptionPred: getCss('--accent-cons-pred'),
       grid: getCss('--grid'),
       muted: getCss('--muted'),
     }};
@@ -740,8 +748,10 @@ def _build_dashboard_html(title: str) -> str:
       }});
       renderChart('history-chart', [
         {{ color: COLORS.soc, points: data.history.soc, axis: 'right' }},
-        {{ color: COLORS.production, points: data.history.production }},
-        {{ color: COLORS.consumption, points: data.history.consumption }},
+        {{ color: COLORS.production, points: data.history.actual_production }},
+        {{ color: COLORS.productionPred, points: data.history.predicted_production, dash: '6 5' }},
+        {{ color: COLORS.consumption, points: data.history.actual_consumption }},
+        {{ color: COLORS.consumptionPred, points: data.history.predicted_consumption, dash: '6 5' }},
       ], {{
         selectedTimestamp: data.selected_run ? data.selected_run.timestamp : null,
         yDigits: 0,

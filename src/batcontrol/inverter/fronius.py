@@ -216,6 +216,7 @@ class FroniusWR(InverterBaseclass):
 
         # Initialize SOC cache with 30-second TTL (maxsize=1 since we only cache one SOC value)
         self._soc_cache = TTLCache(maxsize=1, ttl=30)
+        self._powerflow_cache = TTLCache(maxsize=1, ttl=30)
 
         # Initialize time of use cache with 15-minute TTL (maxsize=1 since we only cache one config)
         # 15 minutes , 10 Seconds = 910 seconds
@@ -302,6 +303,60 @@ class FroniusWR(InverterBaseclass):
         self._soc_cache[cache_key] = soc
         logger.debug("Cached SOC value: %s", soc)
         return soc
+
+    def _get_powerflow_result(self):
+        """Fetch and cache the powerflow JSON result from the inverter."""
+        cache_key = "powerflow"
+        if cache_key in self._powerflow_cache:
+            return self._powerflow_cache[cache_key]
+
+        logger.debug("Fetching fresh powerflow value from inverter")
+        path = self.api_config.powerflow_path
+        response = self.send_request(path)
+        if not response:
+            logger.error(
+                'Failed to get powerflow data. Returning no result'
+            )
+            return None
+
+        result = json.loads(response.text)
+        self._powerflow_cache[cache_key] = result
+        return result
+
+    def get_powerflow_metrics(self) -> dict:
+        """Return parsed real-time powerflow metrics from the Solar API."""
+        result = self._get_powerflow_result()
+        if result is None:
+            return {}
+
+        data = result.get('Body', {}).get('Data', {})
+        site = data.get('Site', {})
+        secondary_meters = data.get('SecondaryMeters', {}) or {}
+        inverters = data.get('Inverters', {}) or {}
+
+        secondary_wr_power = 0.0
+        for meter in secondary_meters.values():
+            if meter.get('Category') == 'METER_CAT_WR':
+                secondary_wr_power += float(meter.get('P', 0.0))
+
+        inverter_power = 0.0
+        for inverter in inverters.values():
+            inverter_power += float(inverter.get('P', 0.0))
+
+        pv_power = float(site.get('P_PV', 0.0))
+        battery_power = float(site.get('P_Akku', 0.0))
+        load_power = float(site.get('P_Load', 0.0))
+        grid_power = float(site.get('P_Grid', 0.0))
+
+        return {
+            'actual_production_w': pv_power + secondary_wr_power,
+            'actual_pv_w': pv_power,
+            'actual_secondary_wr_w': secondary_wr_power,
+            'actual_inverter_w': inverter_power,
+            'actual_battery_w': battery_power,
+            'actual_consumption_w': abs(load_power),
+            'actual_grid_w': grid_power,
+        }
 
     def get_battery_config(self):
         """ Get battery configuration from inverter and keep a backup."""

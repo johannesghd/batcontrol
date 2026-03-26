@@ -1019,6 +1019,10 @@ class Batcontrol:
         if self.data_recorder is None:
             return
 
+        actual_metrics = {}
+        if hasattr(self.inverter, 'get_powerflow_metrics'):
+            actual_metrics = self.inverter.get_powerflow_metrics() or {}
+
         self.data_recorder.record_calculation(
             created_at_ts=self.last_run_time,
             mode=self.last_mode,
@@ -1031,6 +1035,7 @@ class Batcontrol:
             production=production,
             consumption=consumption,
             net_consumption=net_consumption,
+            actual_metrics=actual_metrics,
             metadata={
                 'interval_minutes': self.time_resolution,
                 'mode_label': self._format_mode(self.last_mode),
@@ -1165,8 +1170,10 @@ class Batcontrol:
             },
             'history': {
                 'soc': _history_points('soc_percent'),
-                'production': _history_points('production'),
-                'consumption': _history_points('consumption'),
+                'actual_production': _history_points('actual_production'),
+                'predicted_production': _history_points('predicted_production'),
+                'actual_consumption': _history_points('actual_consumption'),
+                'predicted_consumption': _history_points('predicted_consumption'),
             },
             'sources': {
                 'prices': self._format_source_snapshot(price_source),

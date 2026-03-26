@@ -17,6 +17,10 @@ class InverterBaseclass(InverterInterface):
         """ Dummy implementation """
         raise RuntimeWarning("get_capacity not implemented!")
 
+    def get_powerflow_metrics(self) -> dict:
+        """Return current powerflow metrics if the inverter provides them."""
+        return {}
+
     def get_designed_capacity(self) -> float:
         """ Returns the designed maximum capacity of the battery in kWh,
             which does not include MIN_SOC , MAX_SOC or other restrictions.
