@@ -303,6 +303,81 @@ class TestAwattarProvider:
         assert prices[6] == 0.2
         assert prices[7] == 0.21
 
+    def test_awattar_extracts_stekker_forecast_trace(self, timezone):
+        """Stekker HTML payload should be parsed into EUR/kWh forecast rows."""
+        from batcontrol.dynamictariff.awattar import Awattar
+
+        provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        html_text = (
+            '<div data-epex-forecast-graph-data-value="'
+            '[{&quot;name&quot;:&quot;Forecast price&quot;,'
+            '&quot;x&quot;:['
+            '&quot;2026-03-28T00:00:00+01:00&quot;,'
+            '&quot;2026-03-28T01:00:00+01:00&quot;],'
+            '&quot;y&quot;:[120.0,130.0]}]'
+            '"></div>'
+        )
+
+        prices = provider._extract_stekker_forecast_traces(html_text)
+
+        assert prices[0]['name'] == 'Forecast price'
+        assert prices[0]['y'] == [120.0, 130.0]
+
+    @patch('batcontrol.dynamictariff.awattar.requests.get')
+    def test_awattar_extends_with_stekker_after_last_known_hour(self, mock_get, timezone):
+        """Stekker should extend the price curve only beyond the last Awattar hour."""
+        from batcontrol.dynamictariff.awattar import Awattar
+
+        awattar_response = mock_get.return_value
+        awattar_response.status_code = 200
+        awattar_response.raise_for_status.return_value = None
+        awattar_response.json.return_value = {'data': []}
+
+        provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        current_hour_start = timezone.localize(datetime(2026, 3, 26, 20, 0, 0))
+        prices = {
+            0: 0.25,
+            1: 0.26,
+            2: 0.27,
+            3: 0.28,
+        }
+
+        provider._get_stekker_forecast_for_date = lambda _day: {
+            timezone.localize(datetime(2026, 3, 27, 0, 0, 0)): 0.120,
+            timezone.localize(datetime(2026, 3, 27, 1, 0, 0)): 0.121,
+            timezone.localize(datetime(2026, 3, 26, 23, 0, 0)): 0.119,
+        }
+
+        extension = provider._get_stekker_extension_prices(prices, current_hour_start)
+
+        assert extension == {
+            4: 0.120,
+            5: 0.121,
+        }
+
+    def test_awattar_gets_stekker_forecast_for_specific_day(self, timezone):
+        """Stekker day forecast should be filtered to one local day and converted to EUR/kWh."""
+        from batcontrol.dynamictariff.awattar import Awattar
+
+        provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        provider._fetch_stekker_forecast_page = lambda filter_from, filter_to: (
+            '<div data-epex-forecast-graph-data-value="'
+            '[{&quot;name&quot;:&quot;Forecast price&quot;,'
+            '&quot;x&quot;:['
+            '&quot;2026-03-27T00:00:00+01:00&quot;,'
+            '&quot;2026-03-27T01:00:00+01:00&quot;,'
+            '&quot;2026-03-28T00:00:00+01:00&quot;],'
+            '&quot;y&quot;:[120.0,121.0,150.0]}]'
+            '"></div>'
+        )
+
+        prices = provider._get_stekker_forecast_for_date(datetime(2026, 3, 27).date())
+
+        assert prices == {
+            timezone.localize(datetime(2026, 3, 27, 0, 0, 0)): 0.12,
+            timezone.localize(datetime(2026, 3, 27, 1, 0, 0)): 0.121,
+        }
+
 
 class TestTibberProvider:
     """Tests for Tibber provider"""

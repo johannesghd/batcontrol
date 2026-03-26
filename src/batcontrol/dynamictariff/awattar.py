@@ -23,12 +23,18 @@ Methods:
         Processes the raw data to extract and calculate electricity prices.
 """
 import datetime
+import html
+import json
 import logging
 import math
+import re
 import requests
 from .baseclass import DynamicTariffBaseclass
 
 logger = logging.getLogger(__name__)
+STEKKER_GRAPH_DATA_RE = re.compile(
+    r'data-epex-forecast-graph-data-value="([^"]+)"'
+)
 
 
 class Awattar(DynamicTariffBaseclass):
@@ -60,6 +66,7 @@ class Awattar(DynamicTariffBaseclass):
         self.price_fees = 0
         self.price_markup = 0
         self._daily_price_cache = {}
+        self._stekker_forecast_cache = {}
 
     def set_price_parameters(self, vat: float, price_fees: float, price_markup: float):
         """ Set the extra price parameters for the tariff calculation """
@@ -115,8 +122,9 @@ class Awattar(DynamicTariffBaseclass):
             len(prices)
         )
         prices.update(self._get_extended_day_prices(now, current_hour_start))
+        prices.update(self._get_stekker_extension_prices(prices, current_hour_start))
         logger.debug(
-            'Awattar: Returning %d hourly prices after today/tomorrow extension',
+            'Awattar: Returning %d hourly prices after extensions',
             len(prices)
         )
         return prices
@@ -168,6 +176,128 @@ class Awattar(DynamicTariffBaseclass):
                 if rel_hour >= 0:
                     extended_prices[rel_hour] = price
         return extended_prices
+
+    def _get_stekker_region(self) -> str:
+        """Map current Awattar country endpoint to the matching Stekker region."""
+        if self.url.endswith('.at/v1/marketdata'):
+            return 'AT-3600'
+        if self.url.endswith('.de/v1/marketdata'):
+            return 'DE-LU-3600'
+        raise RuntimeError('No Stekker region mapping configured for current Awattar URL')
+
+    def _fetch_stekker_forecast_page(
+            self,
+            filter_from: datetime.date,
+            filter_to: datetime.date) -> str:
+        """Fetch the Stekker HTML page that embeds the forecast payload."""
+        params = {
+            'advanced_view': '',
+            'region': self._get_stekker_region(),
+            'filter_from': filter_from.isoformat(),
+            'filter_to': filter_to.isoformat(),
+            'show_historic_forecasts': 0,
+            'unit': 'MWh',
+            'commit': 'Save',
+        }
+        response = requests.get(
+            'https://stekker.app/epex-forecast',
+            params=params,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.text
+
+    def _extract_stekker_forecast_traces(self, html_text: str) -> list[dict]:
+        """Extract Plotly traces from the embedded Stekker graph payload."""
+        match = STEKKER_GRAPH_DATA_RE.search(html_text)
+        if match is None:
+            raise ValueError('Stekker graph payload not found in HTML response')
+
+        raw_payload = html.unescape(match.group(1))
+        traces = json.loads(raw_payload)
+        if not isinstance(traces, list):
+            raise ValueError('Stekker graph payload is not a JSON list')
+        return traces
+
+    def _get_stekker_forecast_for_date(
+            self,
+            day: datetime.date) -> dict[datetime.datetime, float]:
+        """Return Stekker forecast prices for a specific local day in EUR/kWh."""
+        cached = self._stekker_forecast_cache.get(day)
+        now_ts = datetime.datetime.now().timestamp()
+        if cached and now_ts - cached['fetched_at_ts'] < self.min_time_between_updates:
+            return cached['prices']
+
+        html_text = self._fetch_stekker_forecast_page(
+            filter_from=day - datetime.timedelta(days=1),
+            filter_to=day + datetime.timedelta(days=2),
+        )
+        traces = self._extract_stekker_forecast_traces(html_text)
+        forecast_trace = next(
+            (trace for trace in traces if trace.get('name') == 'Forecast price'),
+            None,
+        )
+        if forecast_trace is None:
+            raise ValueError('Stekker forecast trace not found in HTML payload')
+
+        prices = {}
+        for timestamp_str, price_eur_per_mwh in zip(
+                forecast_trace.get('x', []),
+                forecast_trace.get('y', [])):
+            if price_eur_per_mwh is None:
+                continue
+            timestamp = datetime.datetime.fromisoformat(timestamp_str)
+            local_timestamp = timestamp.astimezone(self.timezone)
+            if local_timestamp.date() != day:
+                continue
+            if local_timestamp.minute != 0 or local_timestamp.second != 0:
+                continue
+            prices[local_timestamp] = price_eur_per_mwh / 1000
+
+        self._stekker_forecast_cache[day] = {
+            'fetched_at_ts': now_ts,
+            'prices': prices,
+        }
+        logger.debug(
+            'Awattar: Retrieved %d Stekker forecast prices for %s',
+            len(prices),
+            day.isoformat(),
+        )
+        return prices
+
+    def _get_stekker_extension_prices(
+            self,
+            prices: dict[int, float],
+            current_hour_start: datetime.datetime) -> dict[int, float]:
+        """Extend the known spot curve with Stekker forecast data after the last hour."""
+        if not prices:
+            return {}
+
+        last_rel_hour = max(prices.keys())
+        last_known_timestamp = current_hour_start + datetime.timedelta(hours=last_rel_hour)
+        target_day = last_known_timestamp.date() + datetime.timedelta(days=1)
+
+        try:
+            stekker_prices = self._get_stekker_forecast_for_date(target_day)
+        except (
+                requests.exceptions.RequestException,
+                ValueError,
+                json.JSONDecodeError) as exc:
+            logger.warning('Awattar: Stekker extension unavailable: %s', exc)
+            return {}
+
+        extension_prices = {}
+        for timestamp, price in stekker_prices.items():
+            rel_hour = int((timestamp - current_hour_start).total_seconds() / 3600)
+            if rel_hour > last_rel_hour:
+                extension_prices[rel_hour] = price
+
+        logger.debug(
+            'Awattar: Added %d Stekker extension prices after rel_hour=%d',
+            len(extension_prices),
+            last_rel_hour,
+        )
+        return extension_prices
 
     def get_prices_for_today(self) -> dict[int, float]:
         """Get all available hourly prices for the current local day."""
