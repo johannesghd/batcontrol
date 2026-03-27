@@ -615,19 +615,16 @@ class Batcontrol:
         if self.mqtt_api is not None:
             self.mqtt_api.publish_charge_rate(charge_rate)
 
-    def _apply_high_soc_charge_taper(self, requested_charge_rate: int) -> int:
-        """Apply global high-SOC charge taper limits."""
-        if requested_charge_rate <= 0:
-            return requested_charge_rate
-
+    def _get_high_soc_charge_taper_limit(self):
+        """Return the active high-SOC charge taper limit in W, if any."""
         soc = self.last_SOC if isinstance(getattr(self, 'last_SOC', None), (int, float)) else -1
         if soc is None or soc < 0:
             try:
                 fetched_soc = self.get_SOC()
             except Exception:  # pragma: no cover - defensive fallback
-                return requested_charge_rate
+                return None
             if not isinstance(fetched_soc, (int, float)):
-                return requested_charge_rate
+                return None
             soc = float(fetched_soc)
 
         max_capacity = getattr(self, 'last_max_capacity', None)
@@ -635,24 +632,29 @@ class Batcontrol:
             try:
                 fetched_capacity = self.get_max_capacity()
             except Exception:  # pragma: no cover - defensive fallback
-                return requested_charge_rate
+                return None
             if not isinstance(fetched_capacity, (int, float)) or fetched_capacity <= 0:
-                return requested_charge_rate
+                return None
             max_capacity = float(fetched_capacity)
 
         minimum_taper_limit = max(500.0, max_capacity * 0.05)
-        taper_limit = None
         if soc > 99:
-            taper_limit = minimum_taper_limit
+            return int(round(minimum_taper_limit))
         elif soc > 95:
-            taper_limit = max(minimum_taper_limit, max_capacity * 0.05)
+            return int(round(max(minimum_taper_limit, max_capacity * 0.05)))
         elif soc > 90:
-            taper_limit = max(minimum_taper_limit, max_capacity * 0.1)
+            return int(round(max(minimum_taper_limit, max_capacity * 0.1)))
+        return None
 
-        if taper_limit is None:
+    def _apply_high_soc_charge_taper(self, requested_charge_rate: int) -> int:
+        """Apply global high-SOC charge taper limits."""
+        if requested_charge_rate <= 0:
             return requested_charge_rate
 
-        return min(requested_charge_rate, int(round(taper_limit)))
+        taper_limit = self._get_high_soc_charge_taper_limit()
+        if taper_limit is None:
+            return requested_charge_rate
+        return min(requested_charge_rate, taper_limit)
 
     def __set_mode(self, mode):
         """ Set mode and publish to mqtt """
@@ -665,6 +667,19 @@ class Batcontrol:
 
     def allow_discharging(self):
         """ Allow unlimited discharging of the battery """
+        taper_limit = self._get_high_soc_charge_taper_limit()
+        if taper_limit is not None:
+            logger.info(
+                'Mode: Allow Discharging with PV charge limit to %d W due to high SOC',
+                taper_limit,
+            )
+            self.inverter.set_mode_limit_battery_charge(taper_limit)
+            self.__set_mode(MODE_LIMIT_BATTERY_CHARGE_RATE)
+            self.last_limit_battery_charge_rate = taper_limit
+            if self.mqtt_api is not None:
+                self.mqtt_api.publish_limit_battery_charge_rate(taper_limit)
+            return
+
         logger.info('Mode: Allow Discharging')
         self.inverter.set_mode_allow_discharge()
         self.__set_mode(MODE_ALLOW_DISCHARGING)

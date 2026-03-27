@@ -253,6 +253,35 @@ class TestModeLimitBatteryChargeRate:
     @patch('batcontrol.core.inverter_factory.create_inverter')
     @patch('batcontrol.core.solar_factory.create_solar_provider')
     @patch('batcontrol.core.consumption_factory.create_consumption')
+    def test_allow_discharging_uses_taper_limit_above_90_soc(
+        self, mock_consumption, mock_solar, mock_inverter_factory, mock_tariff,
+        mock_config):
+        """Allow-discharge mode should still apply a PV charge limit at high SOC."""
+        mock_inverter = MagicMock()
+        mock_inverter.max_pv_charge_rate = 3000
+        mock_inverter.set_mode_allow_discharge = MagicMock()
+        mock_inverter.set_mode_limit_battery_charge = MagicMock()
+        mock_inverter.get_max_capacity = MagicMock(return_value=10000)
+        mock_inverter.get_SOC = MagicMock(return_value=91.0)
+        mock_inverter_factory.return_value = mock_inverter
+        mock_tariff.return_value = MagicMock()
+        mock_solar.return_value = MagicMock()
+        mock_consumption.return_value = MagicMock()
+
+        bc = Batcontrol(mock_config)
+        bc.last_SOC = 91.0
+        bc.last_max_capacity = 10000
+
+        bc.allow_discharging()
+
+        mock_inverter.set_mode_limit_battery_charge.assert_called_once_with(1000)
+        mock_inverter.set_mode_allow_discharge.assert_not_called()
+        assert bc.last_mode == MODE_LIMIT_BATTERY_CHARGE_RATE
+
+    @patch('batcontrol.core.tariff_factory.create_tarif_provider')
+    @patch('batcontrol.core.inverter_factory.create_inverter')
+    @patch('batcontrol.core.solar_factory.create_solar_provider')
+    @patch('batcontrol.core.consumption_factory.create_consumption')
     def test_api_set_mode_accepts_mode_8(
         self, mock_consumption, mock_solar, mock_inverter_factory, mock_tariff,
         mock_config):
