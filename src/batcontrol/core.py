@@ -1214,17 +1214,24 @@ class Batcontrol:
                     'soc_percent': selected_snapshot['soc_percent'],
                 }]
 
+        snapshot_metadata = selected_snapshot.get('metadata') or {}
+        snapshot_interval_minutes = int(
+            snapshot_metadata.get('interval_minutes') or self.time_resolution
+        )
         run_time = selected_snapshot['created_at_ts']
         projected_flows = self._build_energy_flow_projection(selected_snapshot)
         dashboard_prices = selected_snapshot.get('prices')
         dashboard_consumption = self._interval_energy_series_to_power_series(
-            selected_snapshot.get('consumption')
+            selected_snapshot.get('consumption'),
+            snapshot_interval_minutes,
         )
         dashboard_production = self._interval_energy_series_to_power_series(
-            selected_snapshot.get('production')
+            selected_snapshot.get('production'),
+            snapshot_interval_minutes,
         )
         dashboard_net_consumption = self._interval_energy_series_to_power_series(
-            selected_snapshot.get('net_consumption')
+            selected_snapshot.get('net_consumption'),
+            snapshot_interval_minutes,
         )
         if price_source is not None:
             source_prices = self._prepare_dashboard_source_prices(
@@ -1286,43 +1293,43 @@ class Batcontrol:
                 ),
                 'stored_energy_wh': selected_snapshot.get('stored_energy_wh'),
                 'reserved_energy_wh': selected_snapshot.get('reserved_energy_wh'),
-                'interval_minutes': self.time_resolution,
+                'interval_minutes': snapshot_interval_minutes,
             },
             'today': {
                 'load_profile': build_forecast_series(
                     dashboard_consumption,
                     run_time,
-                    self.time_resolution,
+                    snapshot_interval_minutes,
                     self.timezone,
                 ),
                 'pv_forecast': build_forecast_series(
                     dashboard_production,
                     run_time,
-                    self.time_resolution,
+                    snapshot_interval_minutes,
                     self.timezone,
                 ),
                 'prices': build_forecast_series(
                     dashboard_prices,
                     run_time,
-                    self.time_resolution,
+                    snapshot_interval_minutes,
                     self.timezone,
                 ),
                 'net_consumption': build_forecast_series(
                     dashboard_net_consumption,
                     run_time,
-                    self.time_resolution,
+                    snapshot_interval_minutes,
                     self.timezone,
                 ),
                 'predicted_soc': build_forecast_series(
                     projected_flows['soc'],
                     run_time,
-                    self.time_resolution,
+                    snapshot_interval_minutes,
                     self.timezone,
                 ),
                 'predicted_grid_power': build_forecast_series(
                     projected_flows['grid'],
                     run_time,
-                    self.time_resolution,
+                    snapshot_interval_minutes,
                     self.timezone,
                 ),
             },
@@ -1356,17 +1363,23 @@ class Batcontrol:
         }
         return mode_names.get(mode, f'Unknown ({mode})')
 
-    def _interval_energy_to_power(self, energy_wh: Optional[float]) -> Optional[float]:
+    @staticmethod
+    def _interval_energy_to_power(
+            energy_wh: Optional[float],
+            interval_minutes: int) -> Optional[float]:
         """Convert per-interval energy in Wh to average power in W."""
         if energy_wh is None:
             return None
-        return float(energy_wh) * 60.0 / float(self.time_resolution)
+        return float(energy_wh) * 60.0 / float(interval_minutes)
 
-    def _interval_energy_series_to_power_series(self, values):
+    def _interval_energy_series_to_power_series(self, values, interval_minutes: int):
         """Convert a per-interval energy series in Wh to average power in W."""
         if values is None:
             return None
-        return [self._interval_energy_to_power(value) for value in values]
+        return [
+            self._interval_energy_to_power(value, interval_minutes)
+            for value in values
+        ]
 
     def _format_source_snapshot(self, source_snapshot) -> Dict:
         """Convert source update metadata for the dashboard."""
@@ -1440,6 +1453,7 @@ class Batcontrol:
         mode = selected_snapshot.get('mode')
         charge_rate_w = selected_snapshot.get('charge_rate_w') or 0
         metadata = selected_snapshot.get('metadata') or {}
+        interval_minutes = int(metadata.get('interval_minutes') or self.time_resolution)
         limit_battery_charge_rate_w = metadata.get('limit_battery_charge_rate_w', -1)
         export_target_power = metadata.get('max_future_grid_export_power')
         if export_target_power is None:
@@ -1475,7 +1489,7 @@ class Batcontrol:
             MODE_LIMIT_BATTERY_CHARGE_RATE,
         ]
         force_grid_charge = mode == MODE_FORCE_CHARGING
-        interval_hours = self.time_resolution / 60.0
+        interval_hours = interval_minutes / 60.0
 
         soc_forecast = []
         export_forecast = []

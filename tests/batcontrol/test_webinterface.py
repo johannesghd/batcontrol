@@ -70,9 +70,8 @@ def test_build_forecast_series_aligns_points_to_interval():
 def test_dashboard_converts_interval_energy_to_power_for_forecast_plot():
     """Combined forecast chart should plot W, not interval Wh."""
     bc = object.__new__(Batcontrol)
-    bc.time_resolution = 15
 
-    assert bc._interval_energy_series_to_power_series([100.0, -50.0, None]) == [
+    assert bc._interval_energy_series_to_power_series([100.0, -50.0, None], 15) == [
         400.0,
         -200.0,
         None,
@@ -97,6 +96,30 @@ def test_energy_flow_projection_handles_signed_grid_power():
 
     assert projection['soc'] == [80.0, 100.0, 100.0, 50.0]
     assert projection['grid'] == [-100.0, -100.0, 0.0, 200.0]
+
+
+def test_energy_flow_projection_uses_snapshot_interval_minutes():
+    """Projection should use the selected run interval, not the live process interval."""
+    bc = object.__new__(Batcontrol)
+    bc.time_resolution = 15
+    projection = Batcontrol._build_energy_flow_projection(
+        bc,
+        {
+            'stored_energy_wh': 800.0,
+            'free_capacity_wh': 200.0,
+            'reserved_energy_wh': 200.0,
+            'mode': MODE_LIMIT_BATTERY_CHARGE_RATE,
+            'charge_rate_w': 0,
+            'net_consumption': [-300.0, -300.0],
+            'metadata': {
+                'interval_minutes': 60,
+                'limit_battery_charge_rate_w': 150.0,
+            },
+        }
+    )
+
+    assert projection['soc'] == [80.0, 95.0]
+    assert projection['grid'] == [-150.0, -250.0]
 
 
 def test_energy_flow_projection_respects_pv_charge_limit_mode():
@@ -426,5 +449,66 @@ def test_dashboard_expands_hourly_source_prices_for_15min_resolution(
         assert [point['value'] for point in snapshot['today']['prices'][:6]] == [
             0.21, 0.21, 0.21, 0.24, 0.24, 0.24
         ]
+    finally:
+        bc.shutdown()
+
+
+@patch('batcontrol.core.tariff_factory.create_tarif_provider')
+@patch('batcontrol.core.inverter_factory.create_inverter')
+@patch('batcontrol.core.solar_factory.create_solar_provider')
+@patch('batcontrol.core.consumption_factory.create_consumption')
+def test_dashboard_uses_selected_snapshot_interval_minutes(
+        mock_consumption,
+        mock_solar,
+        mock_inverter_factory,
+        mock_tariff,
+        tmp_path):
+    """Dashboard should scale and timestamp using the selected run interval."""
+    mock_inverter = MagicMock()
+    mock_inverter.get_max_capacity.return_value = 10000
+    mock_inverter.max_pv_charge_rate = 0
+    mock_inverter_factory.return_value = mock_inverter
+    mock_tariff.return_value = MagicMock()
+    mock_solar.return_value = MagicMock()
+    mock_consumption.return_value = MagicMock()
+
+    config = {
+        'timezone': 'Europe/Berlin',
+        'time_resolution_minutes': 15,
+        'inverter': {'type': 'dummy', 'max_grid_charge_rate': 5000},
+        'utility': {'type': 'tibber', 'token': 'test_token'},
+        'pvinstallations': [{'name': 'Test PV'}],
+        'consumption_forecast': {'type': 'csv', 'csv': {}},
+        'battery_control': {'max_charging_from_grid_limit': 0.8, 'min_price_difference': 0.05},
+        'mqtt': {'enabled': False},
+        'webinterface': {'enabled': False},
+    }
+
+    bc = Batcontrol(config)
+    try:
+        berlin = pytz.timezone('Europe/Berlin')
+        run_time = berlin.localize(datetime.datetime(2026, 3, 25, 10, 23)).timestamp()
+        bc.data_recorder = DataRecorder(str(tmp_path / 'dashboard-mixed-intervals.sqlite3'))
+        bc.data_recorder.record_calculation(
+            created_at_ts=run_time,
+            mode=MODE_FORCE_CHARGING,
+            charge_rate_w=0,
+            soc_percent=50.0,
+            stored_energy_wh=5000.0,
+            reserved_energy_wh=1000.0,
+            free_capacity_wh=5000.0,
+            prices=[0.21, 0.24],
+            production=[600.0, 1200.0],
+            consumption=[300.0, 900.0],
+            net_consumption=[-300.0, -300.0],
+            metadata={'interval_minutes': 60},
+        )
+
+        snapshot = bc.get_dashboard_snapshot()
+
+        assert snapshot['status']['interval_minutes'] == 60
+        assert [point['value'] for point in snapshot['today']['pv_forecast']] == [600.0, 1200.0]
+        assert [point['value'] for point in snapshot['today']['load_profile']] == [300.0, 900.0]
+        assert snapshot['today']['pv_forecast'][1]['timestamp'] - snapshot['today']['pv_forecast'][0]['timestamp'] == 3600
     finally:
         bc.shutdown()
