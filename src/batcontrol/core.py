@@ -1218,8 +1218,9 @@ class Batcontrol:
         projected_flows = self._build_energy_flow_projection(selected_snapshot)
         dashboard_prices = selected_snapshot.get('prices')
         if price_source is not None:
-            source_prices = self._source_values_to_series_input(
-                price_source.get('normalized_data')
+            source_prices = self._prepare_dashboard_source_prices(
+                price_source,
+                run_time,
             )
             if source_prices:
                 dashboard_prices = source_prices
@@ -1377,6 +1378,43 @@ class Batcontrol:
             ordered_items = sorted(values.items(), key=lambda item: int(item[0]))
             return [value for _, value in ordered_items]
         return None
+
+    def _prepare_dashboard_source_prices(self, price_source: Dict, selected_ts: float):
+        """Convert persisted source prices to the selected run's interval alignment."""
+        source_prices = self._source_values_to_series_input(
+            price_source.get('normalized_data')
+        )
+        if not source_prices:
+            return None
+
+        metadata = price_source.get('metadata') or {}
+        native_resolution = int(metadata.get('native_resolution_minutes') or self.time_resolution)
+        target_resolution = int(metadata.get('target_resolution_minutes') or self.time_resolution)
+
+        converted_prices = list(source_prices)
+        if native_resolution == 60 and self.time_resolution == 15:
+            expanded_prices = []
+            for price in converted_prices:
+                expanded_prices.extend([price] * 4)
+            converted_prices = expanded_prices
+            target_resolution = 15
+        elif native_resolution == 15 and self.time_resolution == 60:
+            hourly_prices = []
+            for index in range(0, len(converted_prices), 4):
+                bucket = converted_prices[index:index + 4]
+                if len(bucket) == 4:
+                    hourly_prices.append(sum(bucket) / 4.0)
+            converted_prices = hourly_prices
+            target_resolution = 60
+
+        if target_resolution != self.time_resolution or not converted_prices:
+            return converted_prices
+
+        selected_dt = datetime.datetime.fromtimestamp(selected_ts, tz=self.timezone)
+        interval_index = (selected_dt.minute % 60) // self.time_resolution
+        if interval_index <= 0:
+            return converted_prices
+        return converted_prices[interval_index:]
 
     def _build_energy_flow_projection(self, selected_snapshot: Dict):
         """Project SOC and resulting grid import/export from selected run state."""

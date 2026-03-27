@@ -320,3 +320,78 @@ def test_dashboard_uses_full_price_source_series(
         assert snapshot['today']['prices'][3]['value'] == 0.29
     finally:
         bc.shutdown()
+
+
+@patch('batcontrol.core.tariff_factory.create_tarif_provider')
+@patch('batcontrol.core.inverter_factory.create_inverter')
+@patch('batcontrol.core.solar_factory.create_solar_provider')
+@patch('batcontrol.core.consumption_factory.create_consumption')
+def test_dashboard_expands_hourly_source_prices_for_15min_resolution(
+        mock_consumption,
+        mock_solar,
+        mock_inverter_factory,
+        mock_tariff,
+        tmp_path):
+    """Dashboard source prices should be expanded and shifted for 15-minute runs."""
+    mock_inverter = MagicMock()
+    mock_inverter.get_max_capacity.return_value = 10000
+    mock_inverter.max_pv_charge_rate = 0
+    mock_inverter_factory.return_value = mock_inverter
+    mock_tariff.return_value = MagicMock()
+    mock_solar.return_value = MagicMock()
+    mock_consumption.return_value = MagicMock()
+
+    config = {
+        'timezone': 'Europe/Berlin',
+        'time_resolution_minutes': 15,
+        'inverter': {'type': 'dummy', 'max_grid_charge_rate': 5000},
+        'utility': {'type': 'tibber', 'token': 'test_token'},
+        'pvinstallations': [{'name': 'Test PV'}],
+        'consumption_forecast': {'type': 'csv', 'csv': {}},
+        'battery_control': {'max_charging_from_grid_limit': 0.8, 'min_price_difference': 0.05},
+        'mqtt': {'enabled': False},
+        'webinterface': {'enabled': False},
+    }
+
+    bc = Batcontrol(config)
+    try:
+        berlin = pytz.timezone('Europe/Berlin')
+        bc.last_run_time = berlin.localize(datetime.datetime(2026, 3, 25, 10, 23)).timestamp()
+        bc.last_production = np.array([100.0, 100.0, 100.0, 100.0])
+        bc.last_consumption = np.array([200.0, 200.0, 200.0, 200.0])
+        bc.last_prices = np.array([0.21, 0.21, 0.21, 0.21])
+        bc.last_SOC = 67.5
+        bc.last_stored_energy = 6700
+        bc.last_reserved_energy = 2100
+        bc.last_charge_rate = 0
+        bc.last_mode = MODE_FORCE_CHARGING
+        bc.data_recorder = DataRecorder(str(tmp_path / 'dashboard-prices-15m.sqlite3'))
+        bc.data_recorder.record_source_update(
+            source_type='prices',
+            provider='DummyTariff',
+            raw_data={'prices': [0.21, 0.24]},
+            normalized_data={0: 0.21, 1: 0.24},
+            metadata={'native_resolution_minutes': 60, 'target_resolution_minutes': 15},
+            created_at_ts=bc.last_run_time,
+        )
+        bc.data_recorder.record_calculation(
+            created_at_ts=bc.last_run_time,
+            mode=bc.last_mode,
+            charge_rate_w=bc.last_charge_rate,
+            soc_percent=bc.last_SOC,
+            stored_energy_wh=bc.last_stored_energy,
+            reserved_energy_wh=bc.last_reserved_energy,
+            free_capacity_wh=3200,
+            prices=bc.last_prices,
+            production=bc.last_production,
+            consumption=bc.last_consumption,
+            net_consumption=bc.last_consumption - bc.last_production,
+        )
+
+        snapshot = bc.get_dashboard_snapshot()
+
+        assert [point['value'] for point in snapshot['today']['prices'][:6]] == [
+            0.21, 0.21, 0.21, 0.24, 0.24, 0.24
+        ]
+    finally:
+        bc.shutdown()
