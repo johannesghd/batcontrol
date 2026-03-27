@@ -77,10 +77,10 @@ class Energyforecast(DynamicTariffBaseclass):
             configured_resolution = target_resolution
         if configured_resolution == 15:
             native_resolution = 15
-            self.api_resolution = "quarter_hourly"
+            self.api_resolution = "QUARTER_HOURLY"
         else:
             native_resolution = 60
-            self.api_resolution = "hourly"
+            self.api_resolution = "HOURLY"
 
         super().__init__(
             timezone,

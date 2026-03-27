@@ -488,7 +488,7 @@ class TestEnergyforecastProvider:
                                   target_resolution=60)
         assert provider.native_resolution == 60
         assert provider.target_resolution == 60
-        assert provider.api_resolution == "hourly"
+        assert provider.api_resolution == "HOURLY"
         assert provider.market_zone == ""
 
     def test_energyforecast_initialization_15min(self, timezone):
@@ -499,7 +499,7 @@ class TestEnergyforecastProvider:
                                   target_resolution=15)
         assert provider.native_resolution == 15
         assert provider.target_resolution == 15
-        assert provider.api_resolution == "quarter_hourly"
+        assert provider.api_resolution == "QUARTER_HOURLY"
 
     def test_energyforecast_uses_configured_resolution_for_api_selection(self, timezone):
         """Configured tariff resolution should drive Energyforecast API resolution."""
@@ -515,7 +515,7 @@ class TestEnergyforecastProvider:
         )
         assert provider.native_resolution == 60
         assert provider.target_resolution == 15
-        assert provider.api_resolution == "hourly"
+        assert provider.api_resolution == "HOURLY"
         assert provider.market_zone == ""
 
     def test_energyforecast_initialization_custom_market_zone(self, timezone):
