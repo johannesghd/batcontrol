@@ -67,6 +67,7 @@ class Awattar(DynamicTariffBaseclass):
         self.price_markup = 0
         self._daily_price_cache = {}
         self._stekker_forecast_cache = {}
+        self._stekker_window_cache = {}
 
     def set_price_parameters(self, vat: float, price_fees: float, price_markup: float):
         """ Set the extra price parameters for the tariff calculation """
@@ -228,9 +229,40 @@ class Awattar(DynamicTariffBaseclass):
         if cached and now_ts - cached['fetched_at_ts'] < self.min_time_between_updates:
             return cached['prices']
 
-        html_text = self._fetch_stekker_forecast_page(
+        prices = {}
+        all_prices = self._get_stekker_forecast_window(
             filter_from=day - datetime.timedelta(days=1),
             filter_to=day + datetime.timedelta(days=2),
+        )
+        for local_timestamp, price in all_prices.items():
+            if local_timestamp.date() == day:
+                prices[local_timestamp] = price
+
+        self._stekker_forecast_cache[day] = {
+            'fetched_at_ts': now_ts,
+            'prices': prices,
+        }
+        logger.debug(
+            'Awattar: Retrieved %d Stekker forecast prices for %s',
+            len(prices),
+            day.isoformat(),
+        )
+        return prices
+
+    def _get_stekker_forecast_window(
+            self,
+            filter_from: datetime.date,
+            filter_to: datetime.date) -> dict[datetime.datetime, float]:
+        """Return all hourly Stekker forecast prices in the requested window."""
+        cache_key = (filter_from, filter_to)
+        cached = self._stekker_window_cache.get(cache_key)
+        now_ts = datetime.datetime.now().timestamp()
+        if cached and now_ts - cached['fetched_at_ts'] < self.min_time_between_updates:
+            return cached['prices']
+
+        html_text = self._fetch_stekker_forecast_page(
+            filter_from=filter_from,
+            filter_to=filter_to,
         )
         traces = self._extract_stekker_forecast_traces(html_text)
         forecast_trace = next(
@@ -248,21 +280,14 @@ class Awattar(DynamicTariffBaseclass):
                 continue
             timestamp = datetime.datetime.fromisoformat(timestamp_str)
             local_timestamp = timestamp.astimezone(self.timezone)
-            if local_timestamp.date() != day:
-                continue
             if local_timestamp.minute != 0 or local_timestamp.second != 0:
                 continue
             prices[local_timestamp] = self._calculate_end_price(price_eur_per_mwh)
 
-        self._stekker_forecast_cache[day] = {
+        self._stekker_window_cache[cache_key] = {
             'fetched_at_ts': now_ts,
             'prices': prices,
         }
-        logger.debug(
-            'Awattar: Retrieved %d Stekker forecast prices for %s',
-            len(prices),
-            day.isoformat(),
-        )
         return prices
 
     def _get_stekker_extension_prices(
@@ -275,10 +300,12 @@ class Awattar(DynamicTariffBaseclass):
 
         last_rel_hour = max(prices.keys())
         last_known_timestamp = current_hour_start + datetime.timedelta(hours=last_rel_hour)
-        target_day = last_known_timestamp.date() + datetime.timedelta(days=1)
 
         try:
-            stekker_prices = self._get_stekker_forecast_for_date(target_day)
+            stekker_prices = self._get_stekker_forecast_window(
+                filter_from=last_known_timestamp.date() - datetime.timedelta(days=1),
+                filter_to=last_known_timestamp.date() + datetime.timedelta(days=2),
+            )
         except (
                 requests.exceptions.RequestException,
                 ValueError,

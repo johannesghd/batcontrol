@@ -148,6 +148,13 @@ class DynamicTariffBaseclass(TariffInterface):
         # Shift indices to start from CURRENT interval
         current_aligned_prices = self._shift_to_current_interval(converted_prices)
 
+        # Core logic assumes tariff slots are contiguous from index 0.
+        # If a provider yields sparse future prices, keep only the contiguous
+        # prefix and ignore later isolated slots.
+        current_aligned_prices = self._truncate_to_contiguous_prefix(
+            current_aligned_prices
+        )
+
         return current_aligned_prices
 
     @abstractmethod
@@ -253,3 +260,16 @@ class DynamicTariffBaseclass(TariffInterface):
                 shifted_prices[new_idx] = value
 
         return shifted_prices
+
+    @staticmethod
+    def _truncate_to_contiguous_prefix(prices: dict[int, float]) -> dict[int, float]:
+        """Keep only the contiguous index prefix starting at 0."""
+        if not prices or 0 not in prices:
+            return {}
+
+        contiguous_prices = {}
+        expected_idx = 0
+        while expected_idx in prices:
+            contiguous_prices[expected_idx] = prices[expected_idx]
+            expected_idx += 1
+        return contiguous_prices

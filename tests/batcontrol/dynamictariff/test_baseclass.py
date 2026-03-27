@@ -202,6 +202,23 @@ class TestDynamicTariffBaseclass:
                 idx = h * 4 + q
                 assert result[idx] == hourly[h]
 
+    def test_sparse_prices_are_truncated_to_contiguous_prefix(self, timezone):
+        """Sparse future prices should not expose gaps to core.py."""
+        mock_now = datetime(2024, 1, 15, 10, 0, 0,
+                            tzinfo=dt_timezone.utc).astimezone(timezone)
+
+        with patch('batcontrol.dynamictariff.baseclass.datetime') as mock_datetime:
+            mock_datetime.datetime.now.return_value = mock_now
+            mock_datetime.timezone = dt_timezone
+
+            instance = ConcreteTariffProvider(
+                timezone, target_resolution=60, native_resolution=60,
+                mock_prices_func=lambda: {0: 0.10, 1: 0.11, 3: 0.13},
+            )
+            prices = instance.get_prices()
+
+            assert prices == {0: 0.10, 1: 0.11}
+
 
 class TestAwattarProvider:
     """Tests for Awattar provider"""
@@ -342,7 +359,7 @@ class TestAwattarProvider:
             3: 0.28,
         }
 
-        provider._get_stekker_forecast_for_date = lambda _day: {
+        provider._get_stekker_forecast_window = lambda filter_from, filter_to: {
             timezone.localize(datetime(2026, 3, 27, 0, 0, 0)): 0.120,
             timezone.localize(datetime(2026, 3, 27, 1, 0, 0)): 0.121,
             timezone.localize(datetime(2026, 3, 26, 23, 0, 0)): 0.119,
@@ -353,6 +370,27 @@ class TestAwattarProvider:
         assert extension == {
             4: 0.120,
             5: 0.121,
+        }
+
+    def test_awattar_uses_stekker_window_after_extended_awattar_horizon(self, timezone):
+        """Stekker extension should use any later forecast hours from the returned window."""
+        from batcontrol.dynamictariff.awattar import Awattar
+
+        provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        current_hour_start = timezone.localize(datetime(2026, 3, 27, 18, 0, 0))
+        prices = {hour: 0.20 + hour * 0.001 for hour in range(30)}
+
+        provider._get_stekker_forecast_window = lambda filter_from, filter_to: {
+            timezone.localize(datetime(2026, 3, 28, 23, 0, 0)): 0.123,
+            timezone.localize(datetime(2026, 3, 29, 0, 0, 0)): 0.124,
+            timezone.localize(datetime(2026, 3, 29, 1, 0, 0)): 0.125,
+        }
+
+        extension = provider._get_stekker_extension_prices(prices, current_hour_start)
+
+        assert extension == {
+            30: 0.124,
+            31: 0.125,
         }
 
     def test_awattar_gets_stekker_forecast_for_specific_day(self, timezone):
