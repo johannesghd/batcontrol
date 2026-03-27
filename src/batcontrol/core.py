@@ -1533,7 +1533,7 @@ class Batcontrol:
         return {
             'soc': soc_forecast,
             'grid': [
-                round(import_value - export_value, 3)
+                round((import_value - export_value) / interval_hours, 3)
                 for export_value, import_value in zip(export_forecast, import_forecast)
             ],
         }

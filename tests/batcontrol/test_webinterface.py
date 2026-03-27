@@ -142,6 +142,27 @@ def test_energy_flow_projection_uses_export_target_for_mode_8():
     assert projection['grid'] == [-650.0, -650.0, -900.0]
 
 
+def test_energy_flow_projection_returns_grid_power_for_15min_runs():
+    """Projected grid flow should be reported in W, not interval Wh."""
+    bc = object.__new__(Batcontrol)
+    bc.time_resolution = 15
+    projection = Batcontrol._build_energy_flow_projection(
+        bc,
+        {
+            'stored_energy_wh': 800.0,
+            'free_capacity_wh': 200.0,
+            'reserved_energy_wh': 200.0,
+            'mode': MODE_LIMIT_BATTERY_CHARGE_RATE,
+            'charge_rate_w': 0,
+            'net_consumption': [-75.0, -75.0],
+            'metadata': {'limit_battery_charge_rate_w': 150.0},
+        }
+    )
+
+    assert projection['soc'] == [80.0, 83.75]
+    assert projection['grid'] == [-150.0, -150.0]
+
+
 def test_dashboard_query_limit_scales_with_history_days():
     """Dashboard queries should not truncate multi-day history to 500 rows."""
     bc = object.__new__(Batcontrol)
