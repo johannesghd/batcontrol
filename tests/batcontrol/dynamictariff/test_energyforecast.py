@@ -258,6 +258,41 @@ class TestEnergyforecast(unittest.TestCase):
 
         self.assertIn('token is required', str(context.exception).lower())
 
+    @patch('batcontrol.dynamictariff.energyforecast.requests.get')
+    def test_request_omits_market_zone_when_unset(self, mock_get):
+        """Energyforecast should let the API apply the account default market zone."""
+        mock_response = unittest.mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        energyforecast = Energyforecast(self.timezone, self.token)
+        energyforecast.get_raw_data_from_provider()
+
+        self.assertNotIn('market_zone', mock_get.call_args.kwargs['params'])
+
+    @patch('batcontrol.dynamictariff.energyforecast.requests.get')
+    def test_request_uses_configured_market_zone(self, mock_get):
+        """Energyforecast should pass the configured market zone to the API."""
+        mock_response = unittest.mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = []
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        energyforecast = Energyforecast(self.timezone, self.token, market_zone='dk1')
+        energyforecast.get_raw_data_from_provider()
+
+        self.assertEqual(mock_get.call_args.kwargs['params']['market_zone'], 'DK1')
+
+    def test_invalid_market_zone_raises(self):
+        """Unsupported market zones should fail fast."""
+        with self.assertRaises(ValueError) as context:
+            Energyforecast(self.timezone, self.token, market_zone='ES')
+
+        self.assertIn('unsupported market_zone', str(context.exception).lower())
+
 
 if __name__ == '__main__':
     unittest.main()

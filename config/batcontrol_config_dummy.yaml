@@ -98,6 +98,7 @@ utility:
   vat: 0.19 # only required for awattar and energyforecast
   fees: 0.015 # only required for awattar and energyforecast
   markup: 0.03 # only required for awattar and energyforecast
+  # market_zone: DE-LU # optional for energyforecast; if omitted the API account default is used. Accepted: DE-LU, AT, FR, NL, BE, PL, DK1, DK2
   # tariff_zone_1: 0.2733 # only required for tariff_zones, Euro/kWh incl. vat/fees (peak hours)
   # zone_1_hours: 7-22 # hours assigned to zone 1; supports ranges (7-22), singles (7), or mixed (0-5,6,7)
   # tariff_zone_2: 0.1734 # only required for tariff_zones, Euro/kWh incl. vat/fees (off-peak hours)

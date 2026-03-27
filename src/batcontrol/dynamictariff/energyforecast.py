@@ -43,10 +43,32 @@ class Energyforecast(DynamicTariffBaseclass):
 
         The native resolution is set based on target_resolution to fetch
         data at the optimal granularity from the API.
+
+        Accepted market zones when explicitly configured:
+        - DE-LU (default)
+        - AT
+        - FR
+        - NL
+        - BE
+        - PL
+        - DK1
+        - DK2
     """
 
+    SUPPORTED_MARKET_ZONES = {
+        'DE-LU',
+        'AT',
+        'FR',
+        'NL',
+        'BE',
+        'PL',
+        'DK1',
+        'DK2',
+    }
+
     def __init__(self, timezone, token, min_time_between_API_calls=0,
-                 delay_evaluation_by_seconds=0, target_resolution: int = 60):
+                 delay_evaluation_by_seconds=0, target_resolution: int = 60,
+                 market_zone: str = ''):
         """ Initialize Energyforecast class with parameters """
         # Energyforecast API supports both resolutions
         if target_resolution == 15:
@@ -65,15 +87,31 @@ class Energyforecast(DynamicTariffBaseclass):
         )
         self.url = 'https://www.energyforecast.de/api/v1/predictions/next_48_hours'
         self.token = token
+        self.market_zone = self._normalize_market_zone(market_zone)
         self.vat = 0
         self.price_fees = 0
         self.price_markup = 0
 
         logger.info(
-            'Energyforecast: Configured to fetch %s data (resolution=%d min)',
+            'Energyforecast: Configured to fetch %s data (resolution=%d min, market_zone=%s)',
             self.api_resolution,
-            self.native_resolution
+            self.native_resolution,
+            self.market_zone or '<api-default>',
         )
+
+    @classmethod
+    def _normalize_market_zone(cls, market_zone: str) -> str:
+        """Normalize and validate the configured Energyforecast market zone."""
+        normalized = str(market_zone).strip().upper()
+        if normalized == '':
+            return ''
+        if normalized not in cls.SUPPORTED_MARKET_ZONES:
+            supported_zones = ', '.join(sorted(cls.SUPPORTED_MARKET_ZONES))
+            raise ValueError(
+                f'[Energyforecast] Unsupported market_zone {market_zone!r}. '
+                f'Supported zones: {supported_zones}'
+            )
+        return normalized
 
     def upgrade_48h_to_96h(self):
         """ During initialization, we can upgrade the forecast if user wants 96h horizon """
@@ -100,6 +138,8 @@ class Energyforecast(DynamicTariffBaseclass):
                 'vat': 0,
                 'fixed_cost_cent': 0
             }
+            if self.market_zone:
+                params['market_zone'] = self.market_zone
             response = requests.get(self.url, params=params, timeout=30)
             response.raise_for_status()
             if response.status_code != 200:

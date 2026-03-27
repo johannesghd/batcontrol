@@ -124,7 +124,8 @@ class DynamicTariff:
                 token,
                 min_time_between_api_calls,
                 delay_evaluation_by_seconds,
-                target_resolution=target_resolution
+                target_resolution=target_resolution,
+                market_zone=config.get('market_zone', '')
             )
             selected_tariff.set_price_parameters(vat, fees, markup)
             if provider.lower() == 'energyforecast_96':

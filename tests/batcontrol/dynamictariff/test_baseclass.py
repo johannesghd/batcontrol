@@ -489,6 +489,7 @@ class TestEnergyforecastProvider:
         assert provider.native_resolution == 60
         assert provider.target_resolution == 60
         assert provider.api_resolution == "hourly"
+        assert provider.market_zone == ""
 
     def test_energyforecast_initialization_15min(self, timezone):
         """Test Energyforecast provider initialization with 15-min"""
@@ -499,6 +500,15 @@ class TestEnergyforecastProvider:
         assert provider.native_resolution == 15
         assert provider.target_resolution == 15
         assert provider.api_resolution == "quarter_hourly"
+        assert provider.market_zone == ""
+
+    def test_energyforecast_initialization_custom_market_zone(self, timezone):
+        """Test Energyforecast provider initialization with custom market zone"""
+        from batcontrol.dynamictariff.energyforecast import Energyforecast
+
+        provider = Energyforecast(timezone, 'test_token', 900, 0,
+                                  target_resolution=60, market_zone='at')
+        assert provider.market_zone == "AT"
 
 
 class TestDynamicTariffFactory:
