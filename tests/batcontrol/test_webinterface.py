@@ -67,6 +67,18 @@ def test_build_forecast_series_aligns_points_to_interval():
     assert series[1]["timestamp"] - series[0]["timestamp"] == 15 * 60
 
 
+def test_dashboard_converts_interval_energy_to_power_for_forecast_plot():
+    """Combined forecast chart should plot W, not interval Wh."""
+    bc = object.__new__(Batcontrol)
+    bc.time_resolution = 15
+
+    assert bc._interval_energy_series_to_power_series([100.0, -50.0, None]) == [
+        400.0,
+        -200.0,
+        None,
+    ]
+
+
 def test_energy_flow_projection_handles_signed_grid_power():
     """Projection should produce SOC and signed projected grid power."""
     bc = object.__new__(Batcontrol)

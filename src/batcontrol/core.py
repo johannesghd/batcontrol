@@ -1217,6 +1217,15 @@ class Batcontrol:
         run_time = selected_snapshot['created_at_ts']
         projected_flows = self._build_energy_flow_projection(selected_snapshot)
         dashboard_prices = selected_snapshot.get('prices')
+        dashboard_consumption = self._interval_energy_series_to_power_series(
+            selected_snapshot.get('consumption')
+        )
+        dashboard_production = self._interval_energy_series_to_power_series(
+            selected_snapshot.get('production')
+        )
+        dashboard_net_consumption = self._interval_energy_series_to_power_series(
+            selected_snapshot.get('net_consumption')
+        )
         if price_source is not None:
             source_prices = self._prepare_dashboard_source_prices(
                 price_source,
@@ -1281,13 +1290,13 @@ class Batcontrol:
             },
             'today': {
                 'load_profile': build_forecast_series(
-                    selected_snapshot.get('consumption'),
+                    dashboard_consumption,
                     run_time,
                     self.time_resolution,
                     self.timezone,
                 ),
                 'pv_forecast': build_forecast_series(
-                    selected_snapshot.get('production'),
+                    dashboard_production,
                     run_time,
                     self.time_resolution,
                     self.timezone,
@@ -1299,7 +1308,7 @@ class Batcontrol:
                     self.timezone,
                 ),
                 'net_consumption': build_forecast_series(
-                    selected_snapshot.get('net_consumption'),
+                    dashboard_net_consumption,
                     run_time,
                     self.time_resolution,
                     self.timezone,
@@ -1352,6 +1361,12 @@ class Batcontrol:
         if energy_wh is None:
             return None
         return float(energy_wh) * 60.0 / float(self.time_resolution)
+
+    def _interval_energy_series_to_power_series(self, values):
+        """Convert a per-interval energy series in Wh to average power in W."""
+        if values is None:
+            return None
+        return [self._interval_energy_to_power(value) for value in values]
 
     def _format_source_snapshot(self, source_snapshot) -> Dict:
         """Convert source update metadata for the dashboard."""
