@@ -615,6 +615,45 @@ class Batcontrol:
         if self.mqtt_api is not None:
             self.mqtt_api.publish_charge_rate(charge_rate)
 
+    def _apply_high_soc_charge_taper(self, requested_charge_rate: int) -> int:
+        """Apply global high-SOC charge taper limits."""
+        if requested_charge_rate <= 0:
+            return requested_charge_rate
+
+        soc = self.last_SOC if isinstance(getattr(self, 'last_SOC', None), (int, float)) else -1
+        if soc is None or soc < 0:
+            try:
+                fetched_soc = self.get_SOC()
+            except Exception:  # pragma: no cover - defensive fallback
+                return requested_charge_rate
+            if not isinstance(fetched_soc, (int, float)):
+                return requested_charge_rate
+            soc = float(fetched_soc)
+
+        max_capacity = getattr(self, 'last_max_capacity', None)
+        if not isinstance(max_capacity, (int, float)) or max_capacity <= 0:
+            try:
+                fetched_capacity = self.get_max_capacity()
+            except Exception:  # pragma: no cover - defensive fallback
+                return requested_charge_rate
+            if not isinstance(fetched_capacity, (int, float)) or fetched_capacity <= 0:
+                return requested_charge_rate
+            max_capacity = float(fetched_capacity)
+
+        minimum_taper_limit = max(500.0, max_capacity * 0.05)
+        taper_limit = None
+        if soc > 99:
+            taper_limit = minimum_taper_limit
+        elif soc > 95:
+            taper_limit = max(minimum_taper_limit, max_capacity * 0.05)
+        elif soc > 90:
+            taper_limit = max(minimum_taper_limit, max_capacity * 0.1)
+
+        if taper_limit is None:
+            return requested_charge_rate
+
+        return min(requested_charge_rate, int(round(taper_limit)))
+
     def __set_mode(self, mode):
         """ Set mode and publish to mqtt """
         self.last_mode = mode
@@ -641,6 +680,7 @@ class Batcontrol:
     def force_charge(self, charge_rate=500):
         """ Force the battery to charge with a given rate """
         charge_rate = int(min(charge_rate, self.inverter.max_grid_charge_rate))
+        charge_rate = self._apply_high_soc_charge_taper(charge_rate)
         logger.info(
             'Mode: grid charging. Charge rate : %d W', charge_rate)
         self.inverter.set_mode_force_charge(charge_rate)
@@ -672,6 +712,8 @@ class Batcontrol:
             # No max configured (<= 0): only enforce minimum if both are positive
             if self.min_pv_charge_rate > 0 and effective_limit > 0:
                 effective_limit = max(effective_limit, self.min_pv_charge_rate)
+
+        effective_limit = self._apply_high_soc_charge_taper(effective_limit)
 
         logger.info('Mode: Limit Battery Charge Rate to %d W, discharge allowed', effective_limit)
         self.inverter.set_mode_limit_battery_charge(effective_limit)

@@ -200,6 +200,59 @@ class TestModeLimitBatteryChargeRate:
     @patch('batcontrol.core.inverter_factory.create_inverter')
     @patch('batcontrol.core.solar_factory.create_solar_provider')
     @patch('batcontrol.core.consumption_factory.create_consumption')
+    def test_limit_battery_charge_rate_tapers_above_95_soc(
+        self, mock_consumption, mock_solar, mock_inverter_factory, mock_tariff,
+        mock_config):
+        """PV charging should taper to 0.05C above 95% SOC."""
+        mock_inverter = MagicMock()
+        mock_inverter.max_pv_charge_rate = 3000
+        mock_inverter.set_mode_limit_battery_charge = MagicMock()
+        mock_inverter.get_max_capacity = MagicMock(return_value=10000)
+        mock_inverter.get_SOC = MagicMock(return_value=96.0)
+        mock_inverter_factory.return_value = mock_inverter
+        mock_tariff.return_value = MagicMock()
+        mock_solar.return_value = MagicMock()
+        mock_consumption.return_value = MagicMock()
+
+        bc = Batcontrol(mock_config)
+        bc.last_SOC = 96.0
+        bc.last_max_capacity = 10000
+
+        bc.limit_battery_charge_rate(2000)
+
+        mock_inverter.set_mode_limit_battery_charge.assert_called_once_with(500)
+
+    @patch('batcontrol.core.tariff_factory.create_tarif_provider')
+    @patch('batcontrol.core.inverter_factory.create_inverter')
+    @patch('batcontrol.core.solar_factory.create_solar_provider')
+    @patch('batcontrol.core.consumption_factory.create_consumption')
+    def test_force_charge_tapers_above_99_soc(
+        self, mock_consumption, mock_solar, mock_inverter_factory, mock_tariff,
+        mock_config):
+        """Grid charging should taper to 500 W above 99% SOC."""
+        mock_inverter = MagicMock()
+        mock_inverter.max_pv_charge_rate = 3000
+        mock_inverter.max_grid_charge_rate = 5000
+        mock_inverter.set_mode_force_charge = MagicMock()
+        mock_inverter.get_max_capacity = MagicMock(return_value=10000)
+        mock_inverter.get_SOC = MagicMock(return_value=99.5)
+        mock_inverter_factory.return_value = mock_inverter
+        mock_tariff.return_value = MagicMock()
+        mock_solar.return_value = MagicMock()
+        mock_consumption.return_value = MagicMock()
+
+        bc = Batcontrol(mock_config)
+        bc.last_SOC = 99.5
+        bc.last_max_capacity = 10000
+
+        bc.force_charge(3000)
+
+        mock_inverter.set_mode_force_charge.assert_called_once_with(500)
+
+    @patch('batcontrol.core.tariff_factory.create_tarif_provider')
+    @patch('batcontrol.core.inverter_factory.create_inverter')
+    @patch('batcontrol.core.solar_factory.create_solar_provider')
+    @patch('batcontrol.core.consumption_factory.create_consumption')
     def test_api_set_mode_accepts_mode_8(
         self, mock_consumption, mock_solar, mock_inverter_factory, mock_tariff,
         mock_config):
