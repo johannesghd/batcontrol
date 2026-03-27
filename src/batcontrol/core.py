@@ -466,8 +466,14 @@ class Batcontrol:
 
         net_consumption = consumption - production
         history_forecast_metrics = {
-            'predicted_production_w': self._interval_energy_to_power(production[0]),
-            'predicted_consumption_w': self._interval_energy_to_power(consumption[0]),
+            'predicted_production_w': self._interval_energy_to_power(
+                production[0],
+                self.time_resolution,
+            ),
+            'predicted_consumption_w': self._interval_energy_to_power(
+                consumption[0],
+                self.time_resolution,
+            ),
         }
 
         # Log if production offset is active
