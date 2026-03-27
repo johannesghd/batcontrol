@@ -15,6 +15,7 @@ from .common import CommonLogic
 # - 1 minute (1/60 hour) is chosen as it allows adequate time for the inverter
 #   to respond while preventing numerical instability in the calculation
 MIN_REMAINING_TIME_HOURS = 1.0 / 60.0  # 1 minute expressed in hours
+EXPORT_FLATTEN_LOOKAHEAD_HOURS = 12
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +249,12 @@ class DefaultLogic(LogicInterface):
 
         target_export_energy = target_export_power * self.interval_minutes / 60.0
         stored_energy = float(calc_input.stored_energy)
+        lookahead_slots = max(
+            1,
+            int(np.ceil(EXPORT_FLATTEN_LOOKAHEAD_HOURS * 60 / self.interval_minutes))
+        )
 
-        for interval_net in net_consumption:
+        for interval_net in net_consumption[:lookahead_slots]:
             if interval_net >= 0:
                 continue
 

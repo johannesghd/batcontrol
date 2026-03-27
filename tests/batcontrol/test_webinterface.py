@@ -84,7 +84,7 @@ def test_energy_flow_projection_handles_signed_grid_power():
     )
 
     assert projection['soc'] == [80.0, 100.0, 100.0, 50.0]
-    assert projection['grid'] == [100.0, 100.0, 0.0, -200.0]
+    assert projection['grid'] == [-100.0, -100.0, 0.0, 200.0]
 
 
 def test_energy_flow_projection_respects_pv_charge_limit_mode():
@@ -105,7 +105,29 @@ def test_energy_flow_projection_respects_pv_charge_limit_mode():
     )
 
     assert projection['soc'] == [80.0, 95.0]
-    assert projection['grid'] == [150.0, 250.0]
+    assert projection['grid'] == [-150.0, -250.0]
+
+
+def test_energy_flow_projection_uses_export_target_for_mode_8():
+    """Mode 8 export flattening should still charge the battery up to full over time."""
+    bc = object.__new__(Batcontrol)
+    bc.time_resolution = 60
+    bc.config = {'battery_control_expert': {'max_future_grid_export_power': 650}}
+    projection = Batcontrol._build_energy_flow_projection(
+        bc,
+        {
+            'stored_energy_wh': 200.0,
+            'free_capacity_wh': 800.0,
+            'reserved_energy_wh': 0.0,
+            'mode': MODE_LIMIT_BATTERY_CHARGE_RATE,
+            'charge_rate_w': 0,
+            'net_consumption': [-1000.0, -1000.0, -1000.0],
+            'metadata': {'limit_battery_charge_rate_w': 0.0},
+        }
+    )
+
+    assert np.allclose(projection['soc'], [20.0, 55.0, 90.0])
+    assert projection['grid'] == [-650.0, -650.0, -900.0]
 
 
 def test_dashboard_query_limit_scales_with_history_days():

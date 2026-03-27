@@ -1080,6 +1080,14 @@ class Batcontrol:
                 'interval_minutes': self.time_resolution,
                 'mode_label': self._format_mode(self.last_mode),
                 'limit_battery_charge_rate_w': self.last_limit_battery_charge_rate,
+                'max_future_grid_export_power': (
+                    (self.config.get('battery_control_expert') or {}).get(
+                        'max_future_grid_export_power',
+                        0,
+                    )
+                    if hasattr(self, 'config') and self.config is not None
+                    else 0
+                ),
             },
         )
 
@@ -1310,6 +1318,14 @@ class Batcontrol:
         charge_rate_w = selected_snapshot.get('charge_rate_w') or 0
         metadata = selected_snapshot.get('metadata') or {}
         limit_battery_charge_rate_w = metadata.get('limit_battery_charge_rate_w', -1)
+        export_target_power = metadata.get('max_future_grid_export_power')
+        if export_target_power is None:
+            export_target_power = (
+                ((getattr(self, 'config', {}) or {}).get('battery_control_expert') or {}).get(
+                    'max_future_grid_export_power',
+                    0,
+                )
+            )
 
         if (
             stored_energy is None
@@ -1361,6 +1377,13 @@ class Batcontrol:
                 battery_charge_limit = surplus
                 if (
                     mode == MODE_LIMIT_BATTERY_CHARGE_RATE
+                    and export_target_power is not None
+                    and export_target_power > 0
+                ):
+                    target_export_energy = export_target_power * interval_hours
+                    battery_charge_limit = max(0.0, surplus - target_export_energy)
+                elif (
+                    mode == MODE_LIMIT_BATTERY_CHARGE_RATE
                     and limit_battery_charge_rate_w is not None
                     and limit_battery_charge_rate_w >= 0
                 ):
@@ -1387,7 +1410,7 @@ class Batcontrol:
         return {
             'soc': soc_forecast,
             'grid': [
-                round(export_value - import_value, 3)
+                round(import_value - export_value, 3)
                 for export_value, import_value in zip(export_forecast, import_forecast)
             ],
         }
