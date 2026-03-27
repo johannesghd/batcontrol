@@ -352,6 +352,32 @@ class TestDefaultLogic(unittest.TestCase):
         self.assertFalse(result.charge_from_grid)
         self.assertEqual(result.limit_battery_charge_rate, 1350)
 
+    def test_limit_pv_charge_rate_to_flatten_future_export_has_500w_floor(self):
+        """Export flattening should always permit at least 500 W of PV charging."""
+        self.logic.max_future_grid_export_power = 650
+
+        stored_energy = 8000
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy, self.max_capacity
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([0.0, 0.0]),
+            production=np.array([900.0, 3000.0]),
+            prices={0: 0.20, 1: 0.30},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(self.logic.calculate(calc_input, calc_timestamp))
+        result = self.logic.get_inverter_control_settings()
+
+        self.assertTrue(result.allow_discharge)
+        self.assertFalse(result.charge_from_grid)
+        self.assertEqual(result.limit_battery_charge_rate, 500)
+
     def test_does_not_flatten_for_export_peak_beyond_12_hours(self):
         """Export flattening should ignore peaks that are too far ahead."""
         self.logic.max_future_grid_export_power = 650

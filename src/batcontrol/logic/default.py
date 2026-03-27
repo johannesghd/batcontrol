@@ -16,6 +16,7 @@ from .common import CommonLogic
 #   to respond while preventing numerical instability in the calculation
 MIN_REMAINING_TIME_HOURS = 1.0 / 60.0  # 1 minute expressed in hours
 EXPORT_FLATTEN_LOOKAHEAD_HOURS = 12
+EXPORT_FLATTEN_MIN_CHARGE_POWER = 500
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +236,7 @@ class DefaultLogic(LogicInterface):
         target_export_energy = target_export_power * self.interval_minutes / 60.0
         charge_limit_energy = max(0.0, current_surplus_energy - target_export_energy)
         charge_limit_power = charge_limit_energy * 60.0 / self.interval_minutes
-        return int(round(charge_limit_power))
+        return max(EXPORT_FLATTEN_MIN_CHARGE_POWER, int(round(charge_limit_power)))
 
     def __will_future_export_exceed_target(
             self,
