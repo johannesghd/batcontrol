@@ -68,10 +68,14 @@ class Energyforecast(DynamicTariffBaseclass):
 
     def __init__(self, timezone, token, min_time_between_API_calls=0,
                  delay_evaluation_by_seconds=0, target_resolution: int = 60,
+                 configured_resolution: int = None,
                  market_zone: str = ''):
         """ Initialize Energyforecast class with parameters """
-        # Energyforecast API supports both resolutions
-        if target_resolution == 15:
+        # Energyforecast API resolution should follow the configured tariff
+        # resolution, not the promoted internal calculation resolution.
+        if configured_resolution is None:
+            configured_resolution = target_resolution
+        if configured_resolution == 15:
             native_resolution = 15
             self.api_resolution = "quarter_hourly"
         else:

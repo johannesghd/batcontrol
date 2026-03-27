@@ -29,7 +29,8 @@ class DynamicTariff:
     def create_tarif_provider(config: dict, timezone,
                               min_time_between_api_calls,
                               delay_evaluation_by_seconds,
-                              target_resolution: int = 60
+                              target_resolution: int = 60,
+                              configured_resolution: int = 60,
                               ) -> TariffInterface:
         """ Select and configure a dynamic tariff provider based on the given configuration
 
@@ -39,6 +40,7 @@ class DynamicTariff:
             min_time_between_api_calls: Minimum seconds between API calls
             delay_evaluation_by_seconds: Random delay before API calls
             target_resolution: Target resolution in minutes (15 or 60)
+            configured_resolution: Resolution requested in the user config
         """
         selected_tariff = None
         provider = config.get('type')
@@ -125,6 +127,7 @@ class DynamicTariff:
                 min_time_between_api_calls,
                 delay_evaluation_by_seconds,
                 target_resolution=target_resolution,
+                configured_resolution=configured_resolution,
                 market_zone=config.get('market_zone', '')
             )
             selected_tariff.set_price_parameters(vat, fees, markup)

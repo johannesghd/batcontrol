@@ -107,6 +107,7 @@ class Batcontrol:
             self.time_resolution = int(time_resolution_raw)
         else:
             self.time_resolution = time_resolution_raw
+        self.configured_time_resolution = self.time_resolution
 
         if self.time_resolution not in [15, 60]:
             # Note: Python3.11 had issue with f-strings and multiline. Using format() here.
@@ -167,7 +168,8 @@ class Batcontrol:
             self.timezone,
             TIME_BETWEEN_UTILITY_API_CALLS,
             DELAY_EVALUATION_BY_SECONDS,
-            target_resolution=self.time_resolution
+            target_resolution=self.time_resolution,
+            configured_resolution=self.configured_time_resolution,
         )
 
         self.inverter = inverter_factory.create_inverter(
