@@ -1204,6 +1204,19 @@ class Batcontrol:
                 'mode': selected_snapshot.get('mode'),
                 'mode_label': self._format_mode(selected_snapshot.get('mode')),
                 'charge_rate_w': selected_snapshot.get('charge_rate_w'),
+                'limit_battery_charge_rate_w': (
+                    (selected_snapshot.get('metadata') or {}).get('limit_battery_charge_rate_w')
+                ),
+                'display_power_label': (
+                    'PV charge limit'
+                    if selected_snapshot.get('mode') == MODE_LIMIT_BATTERY_CHARGE_RATE
+                    else 'Grid charge rate'
+                ),
+                'display_power_w': (
+                    (selected_snapshot.get('metadata') or {}).get('limit_battery_charge_rate_w')
+                    if selected_snapshot.get('mode') == MODE_LIMIT_BATTERY_CHARGE_RATE
+                    else selected_snapshot.get('charge_rate_w')
+                ),
                 'stored_energy_wh': selected_snapshot.get('stored_energy_wh'),
                 'reserved_energy_wh': selected_snapshot.get('reserved_energy_wh'),
                 'interval_minutes': self.time_resolution,

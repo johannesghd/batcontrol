@@ -534,10 +534,10 @@ def _build_dashboard_html(title: str) -> str:
       const stats = [
         ['SOC', status.soc_percent, '%', 1],
         ['Mode', status.mode_label, '', null],
-        ['Charge rate', status.charge_rate_w, 'W', 0],
+        [status.display_power_label || 'Charge rate', status.display_power_w, 'W', 0],
         ['Stored energy', status.stored_energy_wh, 'Wh', 0],
-        ['Reserved energy', status.reserved_energy_wh, 'Wh', 0],
         ['Resolution', status.interval_minutes, 'min', 0],
+        ['Reserved energy', status.reserved_energy_wh, 'Wh', 0],
       ];
       const container = document.getElementById('stats');
       container.innerHTML = stats.map(([label, value, unit, digits]) => {{

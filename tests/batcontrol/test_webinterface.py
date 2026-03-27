@@ -231,6 +231,8 @@ def test_batcontrol_dashboard_snapshot(
         snapshot = bc.get_dashboard_snapshot()
 
         assert snapshot['status']['mode_label'] == 'Force charging'
+        assert snapshot['status']['display_power_label'] == 'Grid charge rate'
+        assert snapshot['status']['display_power_w'] == 1800
         assert len(snapshot['today']['load_profile']) == 2
         assert len(snapshot['today']['pv_forecast']) == 2
         assert len(snapshot['today']['prices']) == 2
