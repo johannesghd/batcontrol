@@ -57,10 +57,11 @@ class SolcastHobbyist(ForecastSolarBaseclass):
         current_hour = now.replace(minute=0, second=0, microsecond=0)
 
         for _, result in results.items():
-            previous_interval_energy_wh = None
-            for entry in sorted(
-                    result.get('forecasts', []),
-                    key=lambda item: item.get('period_end', '')):
+            sorted_forecasts = sorted(
+                result.get('forecasts', []),
+                key=lambda item: item.get('period_end', ''),
+            )
+            for entry_index, entry in enumerate(sorted_forecasts):
                 pv_estimate_kw = entry.get('pv_estimate')
                 period_end_str = entry.get('period_end')
                 if pv_estimate_kw is None or period_end_str is None:
@@ -70,10 +71,24 @@ class SolcastHobbyist(ForecastSolarBaseclass):
                 period = self._parse_period(entry.get('period', 'PT30M'))
                 period_start = period_end - period
                 period_energy_wh = pv_estimate_kw * 1000 * (period.total_seconds() / 3600)
+                source_minutes = int(period.total_seconds() // 60)
+                previous_interval_energy_wh = self._get_adjacent_period_energy_wh(
+                    sorted_forecasts,
+                    entry_index,
+                    neighbor_direction=-1,
+                    expected_minutes=source_minutes,
+                )
+                next_interval_energy_wh = self._get_adjacent_period_energy_wh(
+                    sorted_forecasts,
+                    entry_index,
+                    neighbor_direction=1,
+                    expected_minutes=source_minutes,
+                )
                 interval_energies_wh = self._split_period_energy_to_quarters(
                     period_energy_wh,
                     period,
                     previous_interval_energy_wh,
+                    next_interval_energy_wh,
                 )
 
                 for interval_index, interval_energy_wh in enumerate(interval_energies_wh):
@@ -82,9 +97,6 @@ class SolcastHobbyist(ForecastSolarBaseclass):
                     if rel_interval < 0:
                         continue
                     prediction[rel_interval] = prediction.get(rel_interval, 0) + interval_energy_wh
-
-                previous_interval_energy_wh = period_energy_wh
-
         if not prediction:
             return {}
 
@@ -173,27 +185,74 @@ class SolcastHobbyist(ForecastSolarBaseclass):
     def _split_period_energy_to_quarters(
             period_energy_wh: float,
             period: datetime.timedelta,
-            previous_period_energy_wh: float = None) -> list[float]:
+            previous_period_energy_wh: float = None,
+            next_period_energy_wh: float = None) -> list[float]:
         """Split Solcast period energy into 15-minute buckets.
 
-        For 30-minute periods, use trapezoidal disaggregation with the previous
-        period energy as the reference. This biases rising production later in
-        the half-hour and falling production earlier, while preserving the
-        current half-hour total.
+        For 15, 30 and 60-minute periods, reconstruct a centered
+        piecewise-linear power curve and integrate it over each 15-minute
+        bucket. Missing neighbors are treated as 0 Wh. Unsupported source
+        periods fall back to flat splitting.
         """
         minutes = int(period.total_seconds() // 60)
         if minutes == 15:
             return [period_energy_wh]
-        if minutes != 30:
+        if minutes not in {30, 60}:
             quarter_count = max(1, int(period.total_seconds() // 900))
             return [period_energy_wh / quarter_count] * quarter_count
 
         if previous_period_energy_wh is None:
             previous_period_energy_wh = 0
+        if next_period_energy_wh is None:
+            next_period_energy_wh = 0
 
-        first_quarter_wh = max(
-            0,
-            min(period_energy_wh, (previous_period_energy_wh + period_energy_wh) / 4),
-        )
-        second_quarter_wh = period_energy_wh - first_quarter_wh
-        return [first_quarter_wh, second_quarter_wh]
+        period_hours = period.total_seconds() / 3600
+        current_avg_power_w = period_energy_wh / period_hours
+        previous_avg_power_w = previous_period_energy_wh / period_hours
+        next_avg_power_w = next_period_energy_wh / period_hours
+
+        # Build a linear ramp around the current interval midpoint. This uses
+        # both neighbors for the slope estimate while preserving the current
+        # interval average exactly, so the split remains energy-conserving.
+        half_boundary_delta_w = (next_avg_power_w - previous_avg_power_w) / 4
+        left_boundary_power_w = current_avg_power_w - half_boundary_delta_w
+        right_boundary_power_w = current_avg_power_w + half_boundary_delta_w
+
+        quarter_count = max(1, minutes // 15)
+        interval_energies_wh = []
+        for quarter_index in range(quarter_count):
+            start_fraction = quarter_index / quarter_count
+            end_fraction = (quarter_index + 1) / quarter_count
+            segment_energy_wh = period_hours * (
+                left_boundary_power_w * (end_fraction - start_fraction)
+                + (right_boundary_power_w - left_boundary_power_w)
+                * ((end_fraction ** 2 - start_fraction ** 2) / 2)
+            )
+            interval_energies_wh.append(segment_energy_wh)
+
+        # Keep per-period energy exactly conserved despite floating point error.
+        energy_error_wh = period_energy_wh - sum(interval_energies_wh)
+        interval_energies_wh[-1] += energy_error_wh
+        return interval_energies_wh
+
+    @staticmethod
+    def _get_adjacent_period_energy_wh(
+            sorted_forecasts: list[dict],
+            current_entry_index: int,
+            neighbor_direction: int,
+            expected_minutes: int) -> float:
+        """Return neighboring interval energy in Wh or 0 if unavailable."""
+        neighbor_index = current_entry_index + neighbor_direction
+        if neighbor_index < 0 or neighbor_index >= len(sorted_forecasts):
+            return 0
+
+        neighbor_entry = sorted_forecasts[neighbor_index]
+        neighbor_period = SolcastHobbyist._parse_period(neighbor_entry.get('period', 'PT30M'))
+        if int(neighbor_period.total_seconds() // 60) != expected_minutes:
+            return 0
+
+        pv_estimate_kw = neighbor_entry.get('pv_estimate')
+        if pv_estimate_kw is None:
+            return 0
+
+        return pv_estimate_kw * 1000 * (neighbor_period.total_seconds() / 3600)

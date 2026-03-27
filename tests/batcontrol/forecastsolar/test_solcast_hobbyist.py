@@ -3,6 +3,7 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
 import pytz
 
 from batcontrol.forecastsolar.solcast_hobbyist import SolcastHobbyist
@@ -83,36 +84,63 @@ def test_solcast_hobbyist_aggregates_two_resources_to_quarter_hourly():
 
         forecast = provider.get_forecast_from_raw_data()
 
-    assert forecast[0] == 100
-    assert forecast[1] == 300
-    assert forecast[2] == 250
-    assert forecast[3] == 350
-    assert forecast[4] == 300
-    assert forecast[5] == 300
-    assert forecast[6] == 350
-    assert forecast[7] == 450
+    assert forecast[0] == pytest.approx(162.5)
+    assert forecast[1] == pytest.approx(237.5)
+    assert forecast[2] == pytest.approx(287.5)
+    assert forecast[3] == pytest.approx(312.5)
+    assert forecast[4] == pytest.approx(287.5)
+    assert forecast[5] == pytest.approx(312.5)
+    assert forecast[6] == pytest.approx(437.5)
+    assert forecast[7] == pytest.approx(362.5)
 
 
-def test_solcast_hobbyist_trapezoid_split_uses_previous_interval_reference():
-    """30-minute Solcast intervals should be split with a trapezoid using the previous interval."""
+def test_solcast_hobbyist_centered_split_biases_rising_production_later():
+    """30-minute intervals should use both neighbors to produce a smooth rising ramp."""
     split = SolcastHobbyist._split_period_energy_to_quarters(
         period_energy_wh=100,
         period=__import__('datetime').timedelta(minutes=30),
         previous_period_energy_wh=0,
+        next_period_energy_wh=200,
     )
 
-    assert split == [25, 75]
+    assert split == [37.5, 62.5]
 
 
-def test_solcast_hobbyist_trapezoid_split_defaults_missing_previous_to_zero():
-    """Missing previous interval should be treated as 0 Wh."""
+def test_solcast_hobbyist_centered_split_defaults_missing_neighbors_to_zero():
+    """Missing neighboring intervals should be treated as 0 Wh."""
     split = SolcastHobbyist._split_period_energy_to_quarters(
         period_energy_wh=100,
         period=__import__('datetime').timedelta(minutes=30),
         previous_period_energy_wh=None,
+        next_period_energy_wh=None,
     )
 
-    assert split == [25, 75]
+    assert split == [50, 50]
+
+
+def test_solcast_hobbyist_centered_split_supports_sixty_minute_periods():
+    """60-minute periods should be integrated into four 15-minute buckets."""
+    split = SolcastHobbyist._split_period_energy_to_quarters(
+        period_energy_wh=400,
+        period=__import__('datetime').timedelta(minutes=60),
+        previous_period_energy_wh=200,
+        next_period_energy_wh=600,
+    )
+
+    assert split == [81.25, 93.75, 106.25, 118.75]
+    assert sum(split) == pytest.approx(400)
+
+
+def test_solcast_hobbyist_unsupported_periods_fall_back_to_flat_split():
+    """Unsupported source periods should be split flat instead of failing."""
+    split = SolcastHobbyist._split_period_energy_to_quarters(
+        period_energy_wh=180,
+        period=__import__('datetime').timedelta(minutes=45),
+        previous_period_energy_wh=120,
+        next_period_energy_wh=240,
+    )
+
+    assert split == [60, 60, 60]
 
 
 def test_solcast_hobbyist_raises_for_missing_resource_id():
