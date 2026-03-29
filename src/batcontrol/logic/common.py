@@ -143,7 +143,7 @@ class CommonLogic:
         if soc is None or max_capacity is None or max_capacity <= 0:
             return None
 
-        minimum_taper_limit = self.get_lowest_high_soc_charge_taper_limit(max_capacity)
+        minimum_taper_limit = max(float(MIN_CHARGE_RATE), max_capacity * HIGH_SOC_TAPER_RATE_2_C)
         if soc > HIGH_SOC_TAPER_THRESHOLD_3:
             return int(round(max(minimum_taper_limit, max_capacity * HIGH_SOC_TAPER_RATE_3_C)))
         if soc > HIGH_SOC_TAPER_THRESHOLD_2:
