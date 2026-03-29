@@ -242,7 +242,7 @@ class Batcontrol:
                 'charge_rate_multiplier', 1.1),
             always_allow_discharge_limit=self.batconfig.get(
                 'always_allow_discharge_limit', 0.9),
-            max_capacity=self.inverter.get_max_capacity(),
+            max_capacity=self.inverter.get_capacity(),
             min_charge_energy=self.batconfig.get('min_recharge_amount', 100.0)
         )
 
@@ -1515,20 +1515,22 @@ class Batcontrol:
                 battery_charge_limit = surplus
                 if (
                     mode == MODE_LIMIT_BATTERY_CHARGE_RATE
-                    and export_target_power is not None
-                    and export_target_power > 0
-                ):
-                    target_export_energy = export_target_power * interval_hours
-                    battery_charge_limit = max(0.0, surplus - target_export_energy)
-                elif (
-                    mode == MODE_LIMIT_BATTERY_CHARGE_RATE
                     and limit_battery_charge_rate_w is not None
                     and limit_battery_charge_rate_w >= 0
                 ):
+                    # Reuse the effective limit that was actually applied in the control loop.
                     battery_charge_limit = min(
                         battery_charge_limit,
                         limit_battery_charge_rate_w * interval_hours,
                     )
+                elif (
+                    mode == MODE_LIMIT_BATTERY_CHARGE_RATE
+                    and export_target_power is not None
+                    and export_target_power > 0
+                ):
+                    # Fallback for older snapshots that do not carry the effective limit.
+                    target_export_energy = export_target_power * interval_hours
+                    battery_charge_limit = max(0.0, surplus - target_export_energy)
                 battery_charge = min(max_capacity - energy, battery_charge_limit)
                 energy += battery_charge
                 predicted_export = surplus - battery_charge
