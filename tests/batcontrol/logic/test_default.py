@@ -430,6 +430,32 @@ class TestDefaultLogic(unittest.TestCase):
         self.assertFalse(result.charge_from_grid)
         self.assertEqual(result.limit_battery_charge_rate, 1000)
 
+    def test_limit_pv_charge_rate_to_flatten_future_export_uses_005c_above_95_soc(self):
+        """Export flattening should use the active 0.05C taper above 95% SOC."""
+        self.logic.max_future_grid_export_power = 650
+
+        stored_energy = 9920
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy, self.max_capacity
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([0.0, 0.0]),
+            production=np.array([700.0, 5000.0]),
+            prices={0: 0.20, 1: 0.30},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(self.logic.calculate(calc_input, calc_timestamp))
+        result = self.logic.get_inverter_control_settings()
+
+        self.assertTrue(result.allow_discharge)
+        self.assertFalse(result.charge_from_grid)
+        self.assertEqual(result.limit_battery_charge_rate, 500)
+
     def test_limit_pv_charge_rate_to_flatten_future_export_honors_current_export_cap(self):
         """A configured current export cap should force more charging when flattening."""
         self.logic.max_future_grid_export_power = 650

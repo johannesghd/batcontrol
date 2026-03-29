@@ -260,15 +260,11 @@ class DefaultLogic(LogicInterface):
         if max_capacity <= 0:
             return max(0.0, minimum_charge_power)
 
-        minimum_charge_power = max(
-            minimum_charge_power,
-            float(self.common.get_lowest_high_soc_charge_taper_limit(max_capacity)),
-        )
-
         soc_percent = calc_input.stored_energy / max_capacity * 100.0
         taper_limit = self.common.get_high_soc_charge_taper_limit(soc_percent, max_capacity)
-        if taper_limit is not None:
-            minimum_charge_power = max(minimum_charge_power, float(taper_limit))
+        if taper_limit is None:
+            taper_limit = self.common.get_lowest_high_soc_charge_taper_limit(max_capacity)
+        minimum_charge_power = max(minimum_charge_power, float(taper_limit))
 
         return max(0.0, minimum_charge_power)
 
