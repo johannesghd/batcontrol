@@ -27,6 +27,7 @@ class Logic:
                     'round_price_digits',
                     'charge_rate_multiplier',
                     'max_future_grid_export_power',
+                    'max_current_grid_export_power',
                 ]
                 for attribute in attribute_list:
                     if attribute in battery_control_expert:

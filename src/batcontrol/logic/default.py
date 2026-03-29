@@ -16,7 +16,6 @@ from .common import CommonLogic
 #   to respond while preventing numerical instability in the calculation
 MIN_REMAINING_TIME_HOURS = 1.0 / 60.0  # 1 minute expressed in hours
 EXPORT_FLATTEN_LOOKAHEAD_HOURS = 12
-EXPORT_FLATTEN_MIN_CHARGE_POWER = 500
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ class DefaultLogic(LogicInterface):
         self.soften_price_difference_on_charging = False
         self.soften_price_difference_on_charging_factor = 5.0  # Default factor
         self.max_future_grid_export_power = 0  # W, 0 disables export flattening
+        self.max_current_grid_export_power = 0  # W, 0 uses only the high-SOC taper floor
         self.timezone = timezone
         self.interval_minutes = interval_minutes
         self.common = CommonLogic.get_instance()
@@ -229,14 +229,43 @@ class DefaultLogic(LogicInterface):
         if current_net_consumption >= 0:
             return None
 
-        current_surplus_energy = -current_net_consumption
+        current_surplus_power = -current_net_consumption
+        current_surplus_energy = current_surplus_power
         if not self.__will_future_export_exceed_target(calc_input, net_consumption, target_export_power):
             return None
 
         target_export_energy = target_export_power * self.interval_minutes / 60.0
         charge_limit_energy = max(0.0, current_surplus_energy - target_export_energy)
         charge_limit_power = charge_limit_energy * 60.0 / self.interval_minutes
-        return max(EXPORT_FLATTEN_MIN_CHARGE_POWER, int(round(charge_limit_power)))
+        minimum_charge_power = self.__get_export_flatten_min_charge_power(
+            calc_input,
+            current_surplus_power,
+        )
+        return int(round(min(current_surplus_power, max(charge_limit_power, minimum_charge_power))))
+
+    def __get_export_flatten_min_charge_power(
+            self,
+            calc_input: CalculationInput,
+            current_surplus_power: float) -> float:
+        """Return the minimum PV charge rate to use while flattening export."""
+        minimum_charge_power = 0.0
+        max_current_export_power = getattr(self, 'max_current_grid_export_power', 0)
+        if max_current_export_power > 0:
+            minimum_charge_power = max(
+                minimum_charge_power,
+                current_surplus_power - max_current_export_power,
+            )
+
+        max_capacity = getattr(self.calculation_parameters, 'max_capacity', 0)
+        if max_capacity <= 0:
+            return max(0.0, minimum_charge_power)
+
+        soc_percent = calc_input.stored_energy / max_capacity * 100.0
+        taper_limit = self.common.get_high_soc_charge_taper_limit(soc_percent, max_capacity)
+        if taper_limit is not None:
+            minimum_charge_power = max(minimum_charge_power, float(taper_limit))
+
+        return max(0.0, minimum_charge_power)
 
     def __will_future_export_exceed_target(
             self,

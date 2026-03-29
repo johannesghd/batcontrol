@@ -11,6 +11,12 @@ import logging
 #   self discharge.
 # 500W is Fronius' internal value for forced recharge.
 MIN_CHARGE_RATE = 500
+HIGH_SOC_TAPER_THRESHOLD_1 = 90
+HIGH_SOC_TAPER_RATE_1_C = 0.10
+HIGH_SOC_TAPER_THRESHOLD_2 = 95
+HIGH_SOC_TAPER_RATE_2_C = 0.05
+HIGH_SOC_TAPER_THRESHOLD_3 = 99
+HIGH_SOC_TAPER_RATE_3_C = 0.05
 
 
 logger = logging.getLogger(__name__)
@@ -131,3 +137,17 @@ class CommonLogic:
         adjusted_charge_rate = int(round(adjusted_charge_rate, 0))
         logger.debug('Adjusted charge rate: %d W', adjusted_charge_rate)
         return adjusted_charge_rate
+
+    def get_high_soc_charge_taper_limit(self, soc: float, max_capacity: float):
+        """Return the maximum charge power allowed by the high-SOC taper."""
+        if soc is None or max_capacity is None or max_capacity <= 0:
+            return None
+
+        minimum_taper_limit = max(float(MIN_CHARGE_RATE), max_capacity * HIGH_SOC_TAPER_RATE_2_C)
+        if soc > HIGH_SOC_TAPER_THRESHOLD_3:
+            return int(round(max(minimum_taper_limit, max_capacity * HIGH_SOC_TAPER_RATE_3_C)))
+        if soc > HIGH_SOC_TAPER_THRESHOLD_2:
+            return int(round(max(minimum_taper_limit, max_capacity * HIGH_SOC_TAPER_RATE_2_C)))
+        if soc > HIGH_SOC_TAPER_THRESHOLD_1:
+            return int(round(max(minimum_taper_limit, max_capacity * HIGH_SOC_TAPER_RATE_1_C)))
+        return None

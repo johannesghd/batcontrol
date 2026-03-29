@@ -645,14 +645,7 @@ class Batcontrol:
                 return None
             max_capacity = float(fetched_capacity)
 
-        minimum_taper_limit = max(500.0, max_capacity * 0.05)
-        if soc > 99:
-            return int(round(minimum_taper_limit))
-        elif soc > 95:
-            return int(round(max(minimum_taper_limit, max_capacity * 0.05)))
-        elif soc > 90:
-            return int(round(max(minimum_taper_limit, max_capacity * 0.1)))
-        return None
+        return self.general_logic.get_high_soc_charge_taper_limit(float(soc), float(max_capacity))
 
     def _apply_high_soc_charge_taper(self, requested_charge_rate: int) -> int:
         """Apply global high-SOC charge taper limits."""
