@@ -352,8 +352,8 @@ class TestDefaultLogic(unittest.TestCase):
         self.assertFalse(result.charge_from_grid)
         self.assertEqual(result.limit_battery_charge_rate, 1350)
 
-    def test_limit_pv_charge_rate_to_flatten_future_export_uses_calculated_limit_by_default(self):
-        """Export flattening should not apply a fixed floor at normal SOC."""
+    def test_limit_pv_charge_rate_to_flatten_future_export_uses_lowest_taper_floor_by_default(self):
+        """Export flattening should default to the lowest taper step at normal SOC."""
         self.logic.max_future_grid_export_power = 650
 
         stored_energy = 8000
@@ -376,7 +376,7 @@ class TestDefaultLogic(unittest.TestCase):
 
         self.assertTrue(result.allow_discharge)
         self.assertFalse(result.charge_from_grid)
-        self.assertEqual(result.limit_battery_charge_rate, 250)
+        self.assertEqual(result.limit_battery_charge_rate, 900)
 
     def test_limit_pv_charge_rate_to_flatten_future_export_uses_high_soc_taper_floor(self):
         """Export flattening should keep the shared high-SOC taper floor."""

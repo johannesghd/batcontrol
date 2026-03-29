@@ -143,7 +143,7 @@ class CommonLogic:
         if soc is None or max_capacity is None or max_capacity <= 0:
             return None
 
-        minimum_taper_limit = max(float(MIN_CHARGE_RATE), max_capacity * HIGH_SOC_TAPER_RATE_2_C)
+        minimum_taper_limit = self.get_lowest_high_soc_charge_taper_limit(max_capacity)
         if soc > HIGH_SOC_TAPER_THRESHOLD_3:
             return int(round(max(minimum_taper_limit, max_capacity * HIGH_SOC_TAPER_RATE_3_C)))
         if soc > HIGH_SOC_TAPER_THRESHOLD_2:
@@ -151,3 +151,9 @@ class CommonLogic:
         if soc > HIGH_SOC_TAPER_THRESHOLD_1:
             return int(round(max(minimum_taper_limit, max_capacity * HIGH_SOC_TAPER_RATE_1_C)))
         return None
+
+    def get_lowest_high_soc_charge_taper_limit(self, max_capacity: float) -> int:
+        """Return the lowest configured taper step as a charge-power floor."""
+        if max_capacity is None or max_capacity <= 0:
+            return int(MIN_CHARGE_RATE)
+        return int(round(max(float(MIN_CHARGE_RATE), max_capacity * HIGH_SOC_TAPER_RATE_1_C)))
