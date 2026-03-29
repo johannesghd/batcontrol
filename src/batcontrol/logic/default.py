@@ -241,7 +241,7 @@ class DefaultLogic(LogicInterface):
             calc_input,
             current_surplus_power,
         )
-        return int(round(min(current_surplus_power, max(charge_limit_power, minimum_charge_power))))
+        return int(round(max(charge_limit_power, minimum_charge_power)))
 
     def __get_export_flatten_min_charge_power(
             self,

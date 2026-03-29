@@ -19,7 +19,7 @@ class CalculationParameters:
     max_charging_from_grid_limit: float
     min_price_difference: float
     min_price_difference_rel: float
-    max_capacity: float # Maximum capacity of the battery in Wh (excludes MAX_SOC)
+    max_capacity: float # Total battery capacity in Wh
 
 @dataclass
 class CalculationOutput:

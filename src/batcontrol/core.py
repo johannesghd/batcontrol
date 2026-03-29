@@ -564,7 +564,7 @@ class Batcontrol:
             self.max_charging_from_grid_limit,
             self.min_price_difference,
             self.min_price_difference_rel,
-            self.get_max_capacity()
+            self.inverter.get_capacity(),
         )
 
         self.last_logic_instance = this_logic_run
@@ -635,17 +635,17 @@ class Batcontrol:
                 return None
             soc = float(fetched_soc)
 
-        max_capacity = getattr(self, 'last_max_capacity', None)
-        if not isinstance(max_capacity, (int, float)) or max_capacity <= 0:
-            try:
-                fetched_capacity = self.get_max_capacity()
-            except Exception:  # pragma: no cover - defensive fallback
-                return None
-            if not isinstance(fetched_capacity, (int, float)) or fetched_capacity <= 0:
-                return None
-            max_capacity = float(fetched_capacity)
+        total_capacity = getattr(self.inverter, 'get_capacity', None)
+        if not callable(total_capacity):
+            return None
+        try:
+            total_capacity = float(self.inverter.get_capacity())
+        except Exception:  # pragma: no cover - defensive fallback
+            return None
+        if total_capacity <= 0:
+            return None
 
-        return self.general_logic.get_high_soc_charge_taper_limit(float(soc), float(max_capacity))
+        return self.general_logic.get_high_soc_charge_taper_limit(float(soc), total_capacity)
 
     def _apply_high_soc_charge_taper(self, requested_charge_rate: int) -> int:
         """Apply global high-SOC charge taper limits."""

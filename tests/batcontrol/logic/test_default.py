@@ -24,7 +24,7 @@ class TestDefaultLogic(unittest.TestCase):
             max_charging_from_grid_limit=0.79,  # 79%
             min_price_difference=0.05,  # 5 cents
             min_price_difference_rel=0.2,  # 20% distance
-            max_capacity=self.max_capacity
+            max_capacity=self.max_capacity,
         )
         self.logic.set_calculation_parameters(self.calculation_parameters)
 
@@ -377,6 +377,32 @@ class TestDefaultLogic(unittest.TestCase):
         self.assertTrue(result.allow_discharge)
         self.assertFalse(result.charge_from_grid)
         self.assertEqual(result.limit_battery_charge_rate, 900)
+
+    def test_limit_pv_charge_rate_to_flatten_future_export_never_drops_below_500w(self):
+        """Export flattening should still keep the 500 W minimum charge-rate floor."""
+        self.logic.max_future_grid_export_power = 650
+
+        stored_energy = 2000
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy, self.max_capacity
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([0.0, 0.0]),
+            production=np.array([273.0, 3000.0]),
+            prices={0: 0.20, 1: 0.30},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(self.logic.calculate(calc_input, calc_timestamp))
+        result = self.logic.get_inverter_control_settings()
+
+        self.assertTrue(result.allow_discharge)
+        self.assertFalse(result.charge_from_grid)
+        self.assertEqual(result.limit_battery_charge_rate, 500)
 
     def test_limit_pv_charge_rate_to_flatten_future_export_uses_high_soc_taper_floor(self):
         """Export flattening should keep the shared high-SOC taper floor."""
