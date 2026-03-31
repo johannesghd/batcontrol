@@ -1238,6 +1238,7 @@ class Batcontrol:
             source_prices = self._prepare_dashboard_source_prices(
                 price_source,
                 run_time,
+                snapshot_interval_minutes,
             )
             if source_prices:
                 dashboard_prices = source_prices
@@ -1408,7 +1409,11 @@ class Batcontrol:
             return [value for _, value in ordered_items]
         return None
 
-    def _prepare_dashboard_source_prices(self, price_source: Dict, selected_ts: float):
+    def _prepare_dashboard_source_prices(
+            self,
+            price_source: Dict,
+            selected_ts: float,
+            interval_minutes: int):
         """Convert persisted source prices to the selected run's interval alignment."""
         source_prices = self._source_values_to_series_input(
             price_source.get('normalized_data')
@@ -1417,17 +1422,17 @@ class Batcontrol:
             return None
 
         metadata = price_source.get('metadata') or {}
-        native_resolution = int(metadata.get('native_resolution_minutes') or self.time_resolution)
-        target_resolution = int(metadata.get('target_resolution_minutes') or self.time_resolution)
+        native_resolution = int(metadata.get('native_resolution_minutes') or interval_minutes)
+        target_resolution = int(metadata.get('target_resolution_minutes') or interval_minutes)
 
         converted_prices = list(source_prices)
-        if native_resolution == 60 and self.time_resolution == 15:
+        if native_resolution == 60 and interval_minutes == 15:
             expanded_prices = []
             for price in converted_prices:
                 expanded_prices.extend([price] * 4)
             converted_prices = expanded_prices
             target_resolution = 15
-        elif native_resolution == 15 and self.time_resolution == 60:
+        elif native_resolution == 15 and interval_minutes == 60:
             hourly_prices = []
             for index in range(0, len(converted_prices), 4):
                 bucket = converted_prices[index:index + 4]
@@ -1436,11 +1441,11 @@ class Batcontrol:
             converted_prices = hourly_prices
             target_resolution = 60
 
-        if target_resolution != self.time_resolution or not converted_prices:
+        if target_resolution != interval_minutes or not converted_prices:
             return converted_prices
 
         selected_dt = datetime.datetime.fromtimestamp(selected_ts, tz=self.timezone)
-        interval_index = (selected_dt.minute % 60) // self.time_resolution
+        interval_index = (selected_dt.minute % 60) // interval_minutes
         if interval_index <= 0:
             return converted_prices
         return converted_prices[interval_index:]
