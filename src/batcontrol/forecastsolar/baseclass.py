@@ -88,19 +88,62 @@ class ForecastSolarBaseclass(ForecastSolarInterface):
     def _restore_cached_source_update(self) -> None:
         """Restore the latest persisted solar update into the in-memory caches."""
         if self.data_recorder is None:
+            logger.debug(
+                '%s: No data recorder attached, skipping persisted solar restore',
+                self.__class__.__name__,
+            )
             return
         if any(cache.entry_key is not None for cache in self.cache_list.values()):
+            logger.debug(
+                '%s: Solar cache already populated, skipping persisted restore',
+                self.__class__.__name__,
+            )
             return
 
+        logger.info(
+            '%s: Checking persisted solar forecast for provider %s',
+            self.__class__.__name__,
+            self.__class__.__name__,
+        )
         snapshot = self.data_recorder.get_source_update_snapshot(
             source_type='solar_forecast',
             provider=self.__class__.__name__,
         )
         if snapshot is None:
+            latest_snapshot = self.data_recorder.get_source_update_snapshot(
+                source_type='solar_forecast',
+            )
+            if latest_snapshot is None:
+                logger.info(
+                    '%s: No persisted solar forecast found in database',
+                    self.__class__.__name__,
+                )
+            else:
+                latest_provider = latest_snapshot.get('provider')
+                latest_created_at_ts = float(latest_snapshot.get('created_at_ts') or 0)
+                latest_at = 'unknown'
+                if latest_created_at_ts > 0:
+                    latest_at = datetime.datetime.fromtimestamp(
+                        latest_created_at_ts,
+                        tz=self.timezone,
+                    ).isoformat()
+                logger.info(
+                    '%s: No persisted solar forecast found for provider %s '
+                    '(latest stored provider=%s at %s)',
+                    self.__class__.__name__,
+                    self.__class__.__name__,
+                    latest_provider,
+                    latest_at,
+                )
             return
 
         created_at_ts = float(snapshot.get('created_at_ts') or 0)
         if created_at_ts <= 0:
+            logger.warning(
+                '%s: Ignoring persisted solar forecast with invalid timestamp: %s',
+                self.__class__.__name__,
+                snapshot.get('created_at_ts'),
+            )
             return
 
         now = time.time()
@@ -124,13 +167,20 @@ class ForecastSolarBaseclass(ForecastSolarInterface):
             restored_any = True
 
         if not restored_any:
+            logger.warning(
+                '%s: Ignoring persisted solar forecast because no configured installation '
+                'had matching raw data entries',
+                self.__class__.__name__,
+            )
             return
 
         self.next_update_ts = created_at_ts + self.min_time_between_updates
         logger.info(
-            '%s: Restored persisted solar forecast from %s',
+            '%s: Restored persisted solar forecast from %s (age=%ds, next refresh at %s)',
             self.__class__.__name__,
             datetime.datetime.fromtimestamp(created_at_ts, tz=self.timezone).isoformat(),
+            int(now - created_at_ts),
+            datetime.datetime.fromtimestamp(self.next_update_ts, tz=self.timezone).isoformat(),
         )
 
     def schedule_next_refresh(self) -> None:
