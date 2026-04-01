@@ -269,6 +269,59 @@ class TestAwattarProvider:
         assert abs(prices[1] - 0.324) < 0.0001
 
     @patch('batcontrol.dynamictariff.awattar.requests.get')
+    def test_awattar_at_applies_snap_discount_for_summer_daytime_hours(
+            self, mock_get, timezone):
+        """Awattar AT should switch to the configured SNAP fees during the fixed window."""
+        from batcontrol.dynamictariff.awattar import Awattar
+
+        mock_response = mock_get.return_value
+        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            'data': [
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+                {'marketprice': 100.0},
+            ]
+        }
+
+        provider = Awattar(timezone, 'at', 900, 0, target_resolution=60)
+        provider.set_price_parameters(
+            vat=0.0,
+            price_fees=0.07512,
+            price_markup=0.0,
+            snap_fees=0.06482,
+        )
+
+        with patch('batcontrol.dynamictariff.awattar.datetime') as mock_datetime:
+            now = timezone.localize(datetime(2024, 6, 20, 12, 0, 0))
+            mock_datetime.datetime.now.return_value = now
+            mock_datetime.datetime.fromtimestamp = datetime.fromtimestamp
+            mock_datetime.datetime.combine = datetime.combine
+            mock_datetime.timedelta = __import__('datetime').timedelta
+            mock_datetime.time = __import__('datetime').time
+
+            prices = provider.get_prices_for_today()
+
+        assert abs(prices[10] - (0.1 + 0.06482)) < 0.000001
+        assert abs(prices[15] - (0.1 + 0.06482)) < 0.000001
+        assert abs(prices[16] - (0.1 + 0.07512)) < 0.000001
+
+    @patch('batcontrol.dynamictariff.awattar.requests.get')
     def test_awattar_get_prices_for_tomorrow(self, mock_get, timezone):
         """Awattar should be able to return the next local-day hourly price map."""
         from batcontrol.dynamictariff.awattar import Awattar

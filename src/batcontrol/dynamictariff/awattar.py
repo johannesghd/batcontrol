@@ -32,6 +32,7 @@ import requests
 from .baseclass import DynamicTariffBaseclass
 
 logger = logging.getLogger(__name__)
+_AUSTRIAN_SNAP_MONTHS = {4, 5, 6, 7, 8, 9}
 STEKKER_GRAPH_DATA_RE = re.compile(
     r'data-epex-forecast-graph-data-value="([^"]+)"'
 )
@@ -65,15 +66,22 @@ class Awattar(DynamicTariffBaseclass):
         self.vat = 0
         self.price_fees = 0
         self.price_markup = 0
+        self.snap_fees = None
         self._daily_price_cache = {}
         self._stekker_forecast_cache = {}
         self._stekker_window_cache = {}
 
-    def set_price_parameters(self, vat: float, price_fees: float, price_markup: float):
+    def set_price_parameters(
+            self,
+            vat: float,
+            price_fees: float,
+            price_markup: float,
+            snap_fees: float = None):
         """ Set the extra price parameters for the tariff calculation """
         self.vat = vat
         self.price_fees = price_fees
         self.price_markup = price_markup
+        self.snap_fees = snap_fees
 
     def get_raw_data_from_provider(self):
         """ Get raw data from Awattar API and return parsed json """
@@ -114,7 +122,8 @@ class Awattar(DynamicTariffBaseclass):
             rel_hour = int(diff.total_seconds() / 3600)
             if rel_hour >= 0:
                 end_price = (
-                    item['marketprice'] / 1000 * (1 + self.price_markup) + self.price_fees
+                    item['marketprice'] / 1000 * (1 + self.price_markup)
+                    + self._get_effective_price_fees(timestamp)
                 ) * (1 + self.vat)
                 prices[rel_hour] = end_price
 
@@ -130,11 +139,30 @@ class Awattar(DynamicTariffBaseclass):
         )
         return prices
 
-    def _calculate_end_price(self, market_price: float) -> float:
+    def _calculate_end_price(
+            self,
+            market_price: float,
+            timestamp: datetime.datetime = None) -> float:
         """Apply markup, fees and VAT to the Awattar market price."""
         return (
-            market_price / 1000 * (1 + self.price_markup) + self.price_fees
+            market_price / 1000 * (1 + self.price_markup)
+            + self._get_effective_price_fees(timestamp)
         ) * (1 + self.vat)
+
+    def _get_effective_price_fees(self, timestamp: datetime.datetime = None) -> float:
+        """Apply Austrian SNAP fees during the configured summer daytime window."""
+        if timestamp is None or self.url.endswith('.de/v1/marketdata') or self.snap_fees is None:
+            return self.price_fees
+
+        local_timestamp = timestamp.astimezone(self.timezone)
+        if (
+            local_timestamp.month not in _AUSTRIAN_SNAP_MONTHS
+            or local_timestamp.hour < 10
+            or local_timestamp.hour >= 16
+        ):
+            return self.price_fees
+
+        return self.snap_fees
 
     def _get_prices_for_date(self, day: datetime.date) -> dict[int, float]:
         """Get all Awattar prices for a specific local day."""
@@ -152,7 +180,11 @@ class Awattar(DynamicTariffBaseclass):
         raw_data = self._fetch_raw_data(f'{self.url}?start={start_ts}')
         prices = {}
         for hour_index, item in enumerate(raw_data.get('data', [])):
-            prices[hour_index] = self._calculate_end_price(item['marketprice'])
+            timestamp = day_start + datetime.timedelta(hours=hour_index)
+            prices[hour_index] = self._calculate_end_price(
+                item['marketprice'],
+                timestamp=timestamp,
+            )
         self._daily_price_cache[day] = {
             'fetched_at_ts': now_ts,
             'prices': prices,

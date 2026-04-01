@@ -293,6 +293,45 @@ class TestEnergyforecast(unittest.TestCase):
 
         self.assertIn('unsupported market_zone', str(context.exception).lower())
 
+    def test_austrian_snap_discount_applies_in_summer_daytime_window(self):
+        """Austrian SNAP should switch to the configured SNAP fees in the summer daytime window."""
+        energyforecast = Energyforecast(self.timezone, self.token, market_zone='AT')
+        energyforecast.set_price_parameters(
+            vat=0.20,
+            price_fees=0.07512,
+            price_markup=0.0,
+            snap_fees=0.06482,
+        )
+        energyforecast.store_raw_data({
+            'data': [
+                {
+                    'start': '2024-06-20T10:00:00+02:00',
+                    'end': '2024-06-20T11:00:00+02:00',
+                    'price': 0.20,
+                    'price_origin': 'test'
+                },
+                {
+                    'start': '2024-06-20T16:00:00+02:00',
+                    'end': '2024-06-20T17:00:00+02:00',
+                    'price': 0.20,
+                    'price_origin': 'test'
+                }
+            ]
+        })
+
+        with patch('batcontrol.dynamictariff.energyforecast.datetime') as mock_datetime:
+            mock_now = self.timezone.localize(datetime.datetime(2024, 6, 20, 10, 0, 0))
+            mock_datetime.datetime.now.return_value = mock_now
+            mock_datetime.datetime.fromisoformat = datetime.datetime.fromisoformat
+
+            prices = energyforecast._get_prices_native()
+
+        expected_discounted = (0.20 + 0.06482) * 1.20
+        expected_standard = (0.20 + 0.07512) * 1.20
+
+        self.assertAlmostEqual(prices[0], expected_discounted, places=5)
+        self.assertAlmostEqual(prices[6], expected_standard, places=5)
+
 
 if __name__ == '__main__':
     unittest.main()

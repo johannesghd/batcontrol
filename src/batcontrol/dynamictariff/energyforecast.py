@@ -30,6 +30,7 @@ from .baseclass import DynamicTariffBaseclass
 
 logger = logging.getLogger(__name__)
 _ENERGYFORECAST_MIN_REFRESH_INTERVAL_SECONDS = 1800
+_AUSTRIAN_SNAP_MONTHS = {4, 5, 6, 7, 8, 9}
 
 
 class Energyforecast(DynamicTariffBaseclass):
@@ -108,6 +109,7 @@ class Energyforecast(DynamicTariffBaseclass):
         self.vat = 0
         self.price_fees = 0
         self.price_markup = 0
+        self.snap_fees = None
 
         logger.info(
             'Energyforecast: Configured to fetch %s data (resolution=%d min, market_zone=%s)',
@@ -134,11 +136,32 @@ class Energyforecast(DynamicTariffBaseclass):
         """ During initialization, we can upgrade the forecast if user wants 96h horizon """
         self.url = 'https://www.energyforecast.de/api/v1/predictions/next_96_hours'
 
-    def set_price_parameters(self, vat: float, price_fees: float, price_markup: float):
+    def set_price_parameters(
+            self,
+            vat: float,
+            price_fees: float,
+            price_markup: float,
+            snap_fees: float = None):
         """ Set the extra price parameters for the tariff calculation """
         self.vat = vat
         self.price_fees = price_fees
         self.price_markup = price_markup
+        self.snap_fees = snap_fees
+
+    def _get_effective_price_fees(self, timestamp: datetime.datetime = None) -> float:
+        """Apply Austrian SNAP fees during the configured summer daytime window."""
+        if timestamp is None or self.market_zone != 'AT' or self.snap_fees is None:
+            return self.price_fees
+
+        local_timestamp = timestamp.astimezone(self.timezone)
+        if (
+            local_timestamp.month not in _AUSTRIAN_SNAP_MONTHS
+            or local_timestamp.hour < 10
+            or local_timestamp.hour >= 16
+        ):
+            return self.price_fees
+
+        return self.snap_fees
 
     def get_raw_data_from_provider(self):
         """ Get raw data from energyforecast.de API and return parsed json """
@@ -211,8 +234,12 @@ class Energyforecast(DynamicTariffBaseclass):
                 # Apply fees/markup/vat to the base price
                 # The price field should already be in the correct unit (EUR/kWh)
                 base_price = item['price']
-                end_price = ((base_price * (1 + self.price_markup) + self.price_fees)
-                             * (1 + self.vat))
+                end_price = (
+                    (
+                        base_price * (1 + self.price_markup)
+                        + self._get_effective_price_fees(timestamp)
+                    ) * (1 + self.vat)
+                )
                 prices[rel_interval] = end_price
 
         logger.debug(

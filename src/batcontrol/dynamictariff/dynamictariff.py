@@ -55,13 +55,19 @@ class DynamicTariff:
             vat = float(config.get('vat', 0))
             markup = float(config.get('markup', 0))
             fees = float(config.get('fees', 0))
+            snap_fees = config.get('SNAP_fees')
             selected_tariff = Awattar(
                 timezone, 'at',
                 min_time_between_api_calls,
                 delay_evaluation_by_seconds,
                 target_resolution=target_resolution
             )
-            selected_tariff.set_price_parameters(vat, fees, markup)
+            selected_tariff.set_price_parameters(
+                vat,
+                fees,
+                markup,
+                snap_fees=float(snap_fees) if snap_fees is not None else None,
+            )
 
         elif provider.lower() == 'awattar_de':
             required_fields = ['vat', 'markup', 'fees']
@@ -120,6 +126,7 @@ class DynamicTariff:
             vat = float(config.get('vat', 0))
             markup = float(config.get('markup', 0))
             fees = float(config.get('fees', 0))
+            snap_fees = config.get('SNAP_fees')
             token = config.get('apikey')
             selected_tariff = Energyforecast(
                 timezone,
@@ -130,7 +137,12 @@ class DynamicTariff:
                 configured_resolution=configured_resolution,
                 market_zone=config.get('market_zone', '')
             )
-            selected_tariff.set_price_parameters(vat, fees, markup)
+            selected_tariff.set_price_parameters(
+                vat,
+                fees,
+                markup,
+                snap_fees=float(snap_fees) if snap_fees is not None else None,
+            )
             if provider.lower() == 'energyforecast_96':
                 selected_tariff.upgrade_48h_to_96h()
 

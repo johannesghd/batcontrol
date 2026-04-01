@@ -99,6 +99,7 @@ utility:
   type: awattar_de # [tibber, awattar_at, awattar_de, evcc, energyforecast, tariff_zones]
   vat: 0.19 # only required for awattar and energyforecast
   fees: 0.015 # only required for awattar and energyforecast
+  # SNAP_fees: 0.010 # optional Austrian SNAP fixed fees (Apr-Sep, 10:00-16:00 local)
   markup: 0.03 # only required for awattar and energyforecast
   # market_zone: DE-LU # optional for energyforecast; if omitted the API account default is used. Accepted: DE-LU, AT, FR, NL, BE, PL, DK1, DK2
   # tariff_zone_1: 0.2733 # only required for tariff_zones, Euro/kWh incl. vat/fees (peak hours)
