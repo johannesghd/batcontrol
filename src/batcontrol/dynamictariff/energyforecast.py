@@ -29,6 +29,7 @@ import requests
 from .baseclass import DynamicTariffBaseclass
 
 logger = logging.getLogger(__name__)
+_ENERGYFORECAST_MIN_REFRESH_INTERVAL_SECONDS = 1800
 
 
 class Energyforecast(DynamicTariffBaseclass):
@@ -71,6 +72,18 @@ class Energyforecast(DynamicTariffBaseclass):
                  configured_resolution: int = None,
                  market_zone: str = ''):
         """ Initialize Energyforecast class with parameters """
+        effective_refresh_interval = max(
+            min_time_between_API_calls,
+            _ENERGYFORECAST_MIN_REFRESH_INTERVAL_SECONDS,
+        )
+        if effective_refresh_interval != min_time_between_API_calls:
+            logger.info(
+                'Energyforecast refresh interval raised from %d to %d minutes '
+                'to leave API call headroom',
+                int(min_time_between_API_calls / 60),
+                int(effective_refresh_interval / 60),
+            )
+
         # Energyforecast API resolution should follow the configured tariff
         # resolution, not the promoted internal calculation resolution.
         if configured_resolution is None:
@@ -84,7 +97,7 @@ class Energyforecast(DynamicTariffBaseclass):
 
         super().__init__(
             timezone,
-            min_time_between_API_calls,
+            effective_refresh_interval,
             delay_evaluation_by_seconds,
             target_resolution=target_resolution,
             native_resolution=native_resolution
