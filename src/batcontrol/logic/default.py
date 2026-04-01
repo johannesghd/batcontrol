@@ -32,6 +32,8 @@ class DefaultLogic(LogicInterface):
         self.soften_price_difference_on_charging_factor = 5.0  # Default factor
         self.max_future_grid_export_power = 0  # W, 0 disables export flattening
         self.max_current_grid_export_power = 0  # W, 0 uses only the high-SOC taper floor
+        self.discharge_reserve_soc_buffer = 0.0  # Max fraction of total capacity kept as safety buffer
+        self.discharge_reserve_soc_buffer_release_per_hour = 0.0  # Buffer released per future expensive hour
         self.timezone = timezone
         self.interval_minutes = interval_minutes
         self.common = CommonLogic.get_instance()
@@ -396,6 +398,12 @@ class DefaultLogic(LogicInterface):
             # add_remaining required_energy to reserved_storage
             reserved_storage += required_energy
 
+        reserve_buffer = self.__get_discharge_reserve_buffer(prices, current_price, max_slots)
+        if reserve_buffer > 0:
+            # Keep a small safety margin for forecast errors on top of the
+            # calculated reserve for later expensive slots.
+            reserved_storage += reserve_buffer
+
         self.calculation_output.reserved_energy = reserved_storage
 
         if len(higher_price_slots) > 0:
@@ -403,6 +411,12 @@ class DefaultLogic(LogicInterface):
             # not specific clock times (e.g. "at 2 o'clock").
             logger.debug("[Rule] Reserved Energy will be used in the next slots: %s",
                          higher_price_slots[::-1])
+            if reserve_buffer > 0:
+                logger.debug(
+                    "[Rule] Added safety reserve buffer: %0.1f Wh (%.1f%% of total capacity)",
+                    reserve_buffer,
+                    reserve_buffer / self.common.max_capacity * 100,
+                )
             logger.debug(
                 "[Rule] Reserved Energy: %0.1f Wh. Usable in Battery: %0.1f Wh",
                 reserved_storage,
@@ -431,6 +445,22 @@ class DefaultLogic(LogicInterface):
         )
 
         return False
+
+    def __get_discharge_reserve_buffer(self, prices: dict, current_price: float, max_slots: int) -> float:
+        """Return a safety buffer that melts down with future more-expensive hours."""
+        max_buffer_fraction = max(0.0, self.discharge_reserve_soc_buffer)
+        release_per_hour = max(0.0, self.discharge_reserve_soc_buffer_release_per_hour)
+        if max_buffer_fraction <= 0 or release_per_hour <= 0 or self.common.max_capacity <= 0:
+            return 0.0
+
+        slots_per_hour = max(1, 60 // self.interval_minutes)
+        future_expensive_hours = set()
+        for slot in range(1, max_slots):
+            if prices[slot] > current_price:
+                future_expensive_hours.add(slot // slots_per_hour)
+
+        buffer_fraction = min(max_buffer_fraction, len(future_expensive_hours) * release_per_hour)
+        return self.common.max_capacity * buffer_fraction
 
  # %%
     def __get_required_recharge_energy(self, calc_input: CalculationInput,

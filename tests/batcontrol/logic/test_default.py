@@ -189,6 +189,66 @@ class TestDefaultLogic(unittest.TestCase):
             "Reserve should include later equal-price plateau slots",
         )
 
+    def test_discharge_not_allowed_with_melting_safety_soc_buffer(self):
+        """Keep a shrinking safety buffer for future more-expensive hours."""
+        self.logic.discharge_reserve_soc_buffer = 0.02
+        self.logic.discharge_reserve_soc_buffer_release_per_hour = 0.005
+        stored_energy = 1200
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy,
+            self.max_capacity,
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([100, 400, 400, 0]),
+            production=np.array([0, 0, 0, 0]),
+            prices={0: 0.30, 1: 0.35, 2: 0.35, 3: 0.20},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(self.logic.calculate(calc_input, calc_timestamp))
+
+        result = self.logic.get_inverter_control_settings()
+        calc_output = self.logic.get_calculation_output()
+
+        self.assertFalse(result.allow_discharge)
+        self.assertAlmostEqual(calc_output.reserved_energy, 900.0, delta=0.1)
+
+    def test_discharge_buffer_counts_hourly_slots_once_on_15_min_resolution(self):
+        """Replicated quarter-hour slots from one expensive hour should count once."""
+        logic = DefaultLogic(timezone=datetime.timezone.utc, interval_minutes=15)
+        logic.set_calculation_parameters(self.calculation_parameters)
+        logic.discharge_reserve_soc_buffer = 0.02
+        logic.discharge_reserve_soc_buffer_release_per_hour = 0.005
+
+        stored_energy = 1200
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy,
+            self.max_capacity,
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([100, 100, 100, 100, 100, 100, 100, 100, 0]),
+            production=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]),
+            prices={
+                0: 0.30, 1: 0.30, 2: 0.30, 3: 0.30,
+                4: 0.35, 5: 0.35, 6: 0.35, 7: 0.35,
+                8: 0.20,
+            },
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(logic.calculate(calc_input, calc_timestamp))
+
+        calc_output = logic.get_calculation_output()
+        self.assertAlmostEqual(calc_output.reserved_energy, 900.0, delta=0.1)
+
     def test_charge_calculation_when_charging_possible(self):
         """Test charge calculation when charging is possible due to low SOC"""
         stored_energy = 2000  # 2 kWh, well below charging limit (79% = 7.9 kWh)

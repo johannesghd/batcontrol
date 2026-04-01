@@ -52,6 +52,10 @@ battery_control_expert:
   round_price_digits: 4 # round price to n digits after the comma
   production_offset_percent: 1.0 # Adjust production forecast by a percentage (1.0 = 100%, 0.8 = 80%, etc.)
                                  # Useful for winter mode when solar panels are covered with snow
+  discharge_reserve_soc_buffer: 0.0 # Max extra reserve as a fraction of total battery capacity.
+                                     # The buffer melts down as more-expensive future hours are consumed.
+  discharge_reserve_soc_buffer_release_per_hour: 0.0 # Buffer fraction kept per future more-expensive hour.
+                                                     # Example: 0.02 with 0.005 keeps up to 2%, melting by 0.5% per hour.
   max_future_grid_export_power: 0 # W. 0 disables export flattening.
                                    # If > 0, batcontrol may switch to MODE_LIMIT_BATTERY_CHARGE_RATE (8)
                                    # to start exporting earlier and keep predicted later export peaks near this value.

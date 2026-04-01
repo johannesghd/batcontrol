@@ -26,6 +26,8 @@ class Logic:
                     'soften_price_difference_on_charging_factor',
                     'round_price_digits',
                     'charge_rate_multiplier',
+                    'discharge_reserve_soc_buffer',
+                    'discharge_reserve_soc_buffer_release_per_hour',
                     'max_future_grid_export_power',
                     'max_current_grid_export_power',
                 ]
