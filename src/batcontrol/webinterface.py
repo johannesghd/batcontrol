@@ -620,6 +620,11 @@ def _build_dashboard_html(title: str) -> str:
       const leftBounds = options.leftBounds || getBounds(primaryLeftSeries.flatMap(item => item.points.map(point => point.value)), !!options.leftIncludeZero);
       const rightBounds = options.rightBounds || getBounds(rightValues, !!options.rightIncludeZero);
       const socBounds = options.socBounds || {{ min: 0, max: 100 }};
+      if (!options.leftBounds && options.leftMirrorZero && leftBounds.min < 0) {{
+        const mirroredBound = Math.max(Math.abs(leftBounds.min), Math.abs(leftBounds.max));
+        leftBounds.min = -mirroredBound;
+        leftBounds.max = mirroredBound;
+      }}
       if (options.leftMaxStep) {{
         leftBounds.max = roundUp(leftBounds.max, options.leftMaxStep);
         if (leftBounds.min < 0) {{
@@ -863,6 +868,7 @@ def _build_dashboard_html(title: str) -> str:
         minHoursSpan: 36,
         domainMode: 'future',
         leftIncludeZero: true,
+        leftMirrorZero: true,
         leftMaxStep: 500,
         rightAxis: true,
         rightIncludeZero: true,
@@ -883,6 +889,7 @@ def _build_dashboard_html(title: str) -> str:
         selectedTimestamp: data.selected_run ? data.selected_run.timestamp : null,
         minHoursSpan: 36,
         domainMode: 'history',
+        leftMirrorZero: true,
         leftMaxStep: 500,
         yDigits: 0,
         rightAxis: true,

@@ -201,6 +201,8 @@ def test_dashboard_price_axis_includes_zero_by_default():
 
     assert "const rightBounds = options.rightBounds || getBounds(rightValues, !!options.rightIncludeZero);" in html
     assert "rightIncludeZero: true," in html
+    assert "if (!options.leftBounds && options.leftMirrorZero && leftBounds.min < 0)" in html
+    assert "leftMirrorZero: true," in html
 
 
 @patch('batcontrol.core.tariff_factory.create_tarif_provider')
