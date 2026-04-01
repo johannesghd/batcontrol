@@ -1234,6 +1234,7 @@ class Batcontrol:
             selected_snapshot.get('net_consumption'),
             snapshot_interval_minutes,
         )
+        dashboard_raw_spot_prices = None
         if price_source is not None:
             source_prices = self._prepare_dashboard_source_prices(
                 price_source,
@@ -1242,6 +1243,11 @@ class Batcontrol:
             )
             if source_prices:
                 dashboard_prices = source_prices
+            dashboard_raw_spot_prices = self._prepare_dashboard_raw_spot_prices(
+                price_source,
+                run_time,
+                snapshot_interval_minutes,
+            )
 
         def _history_points(key: str) -> List[Dict]:
             points = []
@@ -1312,6 +1318,12 @@ class Batcontrol:
                 ),
                 'prices': build_forecast_series(
                     dashboard_prices,
+                    run_time,
+                    snapshot_interval_minutes,
+                    self.timezone,
+                ),
+                'raw_spot_prices': build_forecast_series(
+                    dashboard_raw_spot_prices,
                     run_time,
                     snapshot_interval_minutes,
                     self.timezone,
@@ -1415,13 +1427,26 @@ class Batcontrol:
             selected_ts: float,
             interval_minutes: int):
         """Convert persisted source prices to the selected run's interval alignment."""
-        source_prices = self._source_values_to_series_input(
-            price_source.get('normalized_data')
+        source_prices = self._source_values_to_series_input(price_source.get('normalized_data'))
+        metadata = price_source.get('metadata') or {}
+        return self._align_dashboard_source_series(
+            source_prices,
+            metadata,
+            selected_ts,
+            interval_minutes,
         )
+
+    def _align_dashboard_source_series(
+            self,
+            values,
+            metadata: Dict,
+            selected_ts: float,
+            interval_minutes: int):
+        """Convert persisted source values to the selected run's interval alignment."""
+        source_prices = self._source_values_to_series_input(values)
         if not source_prices:
             return None
 
-        metadata = price_source.get('metadata') or {}
         native_resolution = int(metadata.get('native_resolution_minutes') or interval_minutes)
         target_resolution = int(metadata.get('target_resolution_minutes') or interval_minutes)
 
@@ -1449,6 +1474,36 @@ class Batcontrol:
         if interval_index <= 0:
             return converted_prices
         return converted_prices[interval_index:]
+
+    def _prepare_dashboard_raw_spot_prices(
+            self,
+            price_source: Dict,
+            selected_ts: float,
+            interval_minutes: int):
+        """Extract raw spot prices from persisted tariff source data for the dashboard."""
+        provider = price_source.get('provider')
+        raw_data = price_source.get('raw_data') or {}
+        raw_prices = None
+
+        if provider == 'Energyforecast':
+            data = raw_data.get('data') or []
+            raw_prices = [item.get('price') for item in data if item.get('price') is not None]
+        elif provider == 'Awattar':
+            data = raw_data.get('data') or []
+            raw_prices = [
+                item.get('marketprice') / 1000.0
+                for item in data
+                if item.get('marketprice') is not None
+            ]
+        elif isinstance(raw_data.get('prices'), list):
+            raw_prices = raw_data.get('prices')
+
+        return self._align_dashboard_source_series(
+            raw_prices,
+            price_source.get('metadata') or {},
+            selected_ts,
+            interval_minutes,
+        )
 
     def _build_energy_flow_projection(self, selected_snapshot: Dict):
         """Project SOC and resulting grid import/export from selected run state."""

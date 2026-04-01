@@ -862,6 +862,7 @@ def _build_dashboard_html(title: str) -> str:
         {{ color: COLORS.net, points: data.today.net_consumption, dash: '8 6' }},
         {{ color: COLORS.gridFlow, points: data.today.predicted_grid_power, dash: '4 4' }},
         {{ color: COLORS.price, points: transformSeries(data.today.prices, 100), axis: 'right', step: true }},
+        {{ color: COLORS.price, points: transformSeries(data.today.raw_spot_prices, 100), axis: 'right', step: true, dash: '3 5' }},
         {{ color: COLORS.socForecast, points: data.today.predicted_soc, axis: 'soc', dash: '7 5' }},
       ], {{
         height: 380,
