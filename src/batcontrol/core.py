@@ -1432,6 +1432,7 @@ class Batcontrol:
         return self._align_dashboard_source_series(
             source_prices,
             metadata,
+            price_source.get('created_at_ts'),
             selected_ts,
             interval_minutes,
         )
@@ -1440,6 +1441,7 @@ class Batcontrol:
             self,
             values,
             metadata: Dict,
+            source_created_at_ts: float,
             selected_ts: float,
             interval_minutes: int):
         """Convert persisted source values to the selected run's interval alignment."""
@@ -1469,11 +1471,15 @@ class Batcontrol:
         if target_resolution != interval_minutes or not converted_prices:
             return converted_prices
 
-        selected_dt = datetime.datetime.fromtimestamp(selected_ts, tz=self.timezone)
-        interval_index = (selected_dt.minute % 60) // interval_minutes
-        if interval_index <= 0:
+        source_dt = datetime.datetime.fromtimestamp(source_created_at_ts, tz=self.timezone)
+        source_start = source_dt.replace(minute=0, second=0, microsecond=0)
+        interval_seconds = interval_minutes * 60
+        selected_start_ts = int(selected_ts - (selected_ts % interval_seconds))
+        selected_start = datetime.datetime.fromtimestamp(selected_start_ts, tz=self.timezone)
+        intervals_to_skip = int((selected_start - source_start).total_seconds() / interval_seconds)
+        if intervals_to_skip <= 0:
             return converted_prices
-        return converted_prices[interval_index:]
+        return converted_prices[intervals_to_skip:]
 
     def _prepare_dashboard_raw_spot_prices(
             self,
@@ -1526,6 +1532,7 @@ class Batcontrol:
         return self._align_dashboard_source_series(
             raw_prices,
             metadata,
+            price_source.get('created_at_ts'),
             selected_ts,
             interval_minutes,
         )

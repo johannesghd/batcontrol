@@ -662,3 +662,77 @@ def test_dashboard_exposes_raw_spot_prices_from_energyforecast_source(
         assert snapshot['today']['raw_spot_prices'][1]['timestamp'] - snapshot['today']['raw_spot_prices'][0]['timestamp'] == 3600
     finally:
         bc.shutdown()
+
+
+@patch('batcontrol.core.tariff_factory.create_tarif_provider')
+@patch('batcontrol.core.inverter_factory.create_inverter')
+@patch('batcontrol.core.solar_factory.create_solar_provider')
+@patch('batcontrol.core.consumption_factory.create_consumption')
+def test_dashboard_price_series_skip_elapsed_intervals_since_source_update(
+        mock_consumption,
+        mock_solar,
+        mock_inverter_factory,
+        mock_tariff,
+        tmp_path):
+    """Both adjusted and raw price series should skip elapsed intervals after the source update hour."""
+    mock_inverter = MagicMock()
+    mock_inverter.get_max_capacity.return_value = 10000
+    mock_inverter.max_pv_charge_rate = 0
+    mock_inverter_factory.return_value = mock_inverter
+    mock_tariff.return_value = MagicMock()
+    mock_solar.return_value = MagicMock()
+    mock_consumption.return_value = MagicMock()
+
+    config = {
+        'timezone': 'Europe/Berlin',
+        'time_resolution_minutes': 60,
+        'inverter': {'type': 'dummy', 'max_grid_charge_rate': 5000},
+        'utility': {'type': 'energyforecast', 'apikey': 'test', 'vat': 0.19, 'fees': 0.07, 'markup': 0.03},
+        'pvinstallations': [{'name': 'Test PV'}],
+        'consumption_forecast': {'type': 'csv', 'csv': {}},
+        'battery_control': {'max_charging_from_grid_limit': 0.8, 'min_price_difference': 0.05},
+        'mqtt': {'enabled': False},
+        'webinterface': {'enabled': False},
+    }
+
+    bc = Batcontrol(config)
+    try:
+        berlin = pytz.timezone('Europe/Berlin')
+        source_update_time = berlin.localize(datetime.datetime(2026, 3, 25, 10, 5)).timestamp()
+        run_time = berlin.localize(datetime.datetime(2026, 3, 25, 11, 23)).timestamp()
+        bc.data_recorder = DataRecorder(str(tmp_path / 'dashboard-price-skip.sqlite3'))
+        bc.data_recorder.record_source_update(
+            source_type='prices',
+            provider='Energyforecast',
+            raw_data={
+                'data': [
+                    {'start': '2026-03-25T09:00:00Z', 'price': 0.11},
+                    {'start': '2026-03-25T10:00:00Z', 'price': 0.12},
+                    {'start': '2026-03-25T11:00:00Z', 'price': 0.13},
+                ]
+            },
+            normalized_data={0: 0.21, 1: 0.24, 2: 0.27},
+            metadata={'native_resolution_minutes': 60, 'target_resolution_minutes': 60},
+            created_at_ts=source_update_time,
+        )
+        bc.data_recorder.record_calculation(
+            created_at_ts=run_time,
+            mode=MODE_FORCE_CHARGING,
+            charge_rate_w=0,
+            soc_percent=50.0,
+            stored_energy_wh=5000.0,
+            reserved_energy_wh=1000.0,
+            free_capacity_wh=5000.0,
+            prices=[0.99, 0.99],
+            production=[600.0, 1200.0],
+            consumption=[300.0, 900.0],
+            net_consumption=[-300.0, -300.0],
+            metadata={'interval_minutes': 60},
+        )
+
+        snapshot = bc.get_dashboard_snapshot(run_time)
+
+        assert [point['value'] for point in snapshot['today']['prices']] == [0.24, 0.27]
+        assert [point['value'] for point in snapshot['today']['raw_spot_prices']] == [0.12, 0.13]
+    finally:
+        bc.shutdown()
