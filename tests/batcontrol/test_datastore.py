@@ -46,6 +46,14 @@ class CountingTariff(DummyTariff):
         return super().get_raw_data_from_provider()
 
 
+class FailingTariff(CountingTariff):
+    """Tariff provider that simulates a fetch failure."""
+
+    def get_raw_data_from_provider(self) -> dict:
+        self.fetch_count += 1
+        raise ConnectionError('simulated fetch failure')
+
+
 class CountingSolar(DummySolar):
     """Solar provider that counts external fetches."""
 
@@ -330,3 +338,34 @@ def test_tariff_ignores_stale_persisted_source_update(tmp_path):
     tariff.refresh_data()
 
     assert tariff.fetch_count == 1
+
+
+def test_tariff_uses_stale_persisted_source_update_as_fetch_failure_fallback(tmp_path):
+    """Fetch failures should fall back to the latest persisted tariff snapshot."""
+    db_path = tmp_path / 'tariff-fallback.sqlite3'
+    recorder = DataRecorder(str(db_path))
+    stale_created_at_ts = time.time() - 3600
+    recorder.record_source_update(
+        source_type='prices',
+        provider='FailingTariff',
+        raw_data={'prices': [0.21, 0.24]},
+        normalized_data={0: 0.21, 1: 0.24},
+        created_at_ts=stale_created_at_ts,
+    )
+
+    tariff = FailingTariff(
+        timezone=None,
+        min_time_between_API_calls=900,
+        delay_evaluation_by_seconds=0,
+        target_resolution=60,
+        native_resolution=60,
+    )
+
+    tariff.set_data_recorder(recorder)
+    assert tariff.fetch_count == 0
+
+    tariff.refresh_data()
+
+    assert tariff.fetch_count == 1
+    assert tariff.get_raw_data() == {'prices': [0.21, 0.24]}
+    assert tariff.next_update_ts > time.time()

@@ -91,20 +91,20 @@ class DynamicTariffBaseclass(TariffInterface):
         self.data_recorder = data_recorder
         self._restore_cached_source_update()
 
-    def _restore_cached_source_update(self) -> None:
+    def _restore_cached_source_update(self, allow_stale: bool = False) -> bool:
         """Restore the latest persisted source update into the in-memory cache."""
         if self.data_recorder is None:
             logger.debug(
                 '%s: No data recorder attached, skipping persisted price restore',
                 self.__class__.__name__,
             )
-            return
+            return False
         if self.cache.entry_key is not None:
             logger.debug(
                 '%s: Price cache already populated, skipping persisted restore',
                 self.__class__.__name__,
             )
-            return
+            return False
 
         logger.info(
             '%s: Checking persisted price forecast for provider %s',
@@ -141,7 +141,7 @@ class DynamicTariffBaseclass(TariffInterface):
                     latest_provider,
                     latest_at,
                 )
-            return
+            return False
 
         created_at_ts = float(snapshot.get('created_at_ts') or 0)
         if created_at_ts <= 0:
@@ -150,17 +150,19 @@ class DynamicTariffBaseclass(TariffInterface):
                 self.__class__.__name__,
                 snapshot.get('created_at_ts'),
             )
-            return
+            return False
 
         now = time.time()
-        if now - created_at_ts > self.min_time_between_updates:
+        age_seconds = int(now - created_at_ts)
+        is_stale = now - created_at_ts > self.min_time_between_updates
+        if is_stale and not allow_stale:
             logger.info(
                 '%s: Ignoring persisted price forecast older than refresh interval (age=%ds, max=%ds)',
                 self.__class__.__name__,
-                int(now - created_at_ts),
+                age_seconds,
                 int(self.min_time_between_updates),
             )
-            return
+            return False
 
         raw_data = snapshot.get('raw_data')
         if not raw_data:
@@ -168,17 +170,22 @@ class DynamicTariffBaseclass(TariffInterface):
                 '%s: Ignoring persisted price forecast with empty raw data',
                 self.__class__.__name__,
             )
-            return
+            return False
 
         self.cache.restore_entry(raw_data, created_at_ts)
-        self.next_update_ts = created_at_ts + self.min_time_between_updates
+        if is_stale and allow_stale:
+            self.next_update_ts = now + self.min_time_between_updates
+        else:
+            self.next_update_ts = created_at_ts + self.min_time_between_updates
         logger.info(
-            '%s: Restored persisted price forecast from %s (age=%ds, next refresh at %s)',
+            '%s: Restored persisted %sprice forecast from %s (age=%ds, next refresh at %s)',
             self.__class__.__name__,
+            'stale ' if is_stale else '',
             datetime.datetime.fromtimestamp(created_at_ts, tz=self.timezone).isoformat(),
-            int(now - created_at_ts),
+            age_seconds,
             datetime.datetime.fromtimestamp(self.next_update_ts, tz=self.timezone).isoformat(),
         )
+        return True
 
     def refresh_data(self) -> None:
         """Refresh data from provider if needed."""
@@ -211,7 +218,10 @@ class DynamicTariffBaseclass(TariffInterface):
                     self.schedule_next_refresh()
                 except (ConnectionError, TimeoutError) as e:
                     logger.error('Error getting raw tariff data: %s', e)
-                    logger.warning('Using cached raw tariff data')
+                    if self._restore_cached_source_update(allow_stale=True):
+                        logger.warning('Using persisted raw tariff data from SQLite fallback')
+                    else:
+                        logger.warning('Using cached raw tariff data')
 
     def get_prices(self) -> dict[int, float]:
         """Get prices with automatic resolution handling.
