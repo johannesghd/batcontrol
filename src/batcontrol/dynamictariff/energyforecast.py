@@ -203,7 +203,8 @@ class Energyforecast(DynamicTariffBaseclass):
                 prices[rel_interval] = end_price
 
         logger.debug(
-            'Energyforecast: Retrieved %d prices at %d-min resolution (hour-aligned)',
+            'Energyforecast: Parsed %d prices from raw data at %d-min resolution '
+            '(hour-aligned)',
             len(prices),
             self.native_resolution
         )
