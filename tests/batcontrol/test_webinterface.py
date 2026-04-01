@@ -632,8 +632,8 @@ def test_dashboard_exposes_raw_spot_prices_from_energyforecast_source(
             provider='Energyforecast',
             raw_data={
                 'data': [
-                    {'start': '2026-03-25T10:00:00Z', 'price': 0.11},
-                    {'start': '2026-03-25T11:00:00Z', 'price': 0.12},
+                    {'start': '2026-03-25T09:00:00Z', 'price': 0.11},
+                    {'start': '2026-03-25T10:00:00Z', 'price': 0.12},
                 ]
             },
             normalized_data={0: 0.21, 1: 0.24},
@@ -659,5 +659,6 @@ def test_dashboard_exposes_raw_spot_prices_from_energyforecast_source(
 
         assert [point['value'] for point in snapshot['today']['prices']] == [0.21, 0.24]
         assert [point['value'] for point in snapshot['today']['raw_spot_prices']] == [0.11, 0.12]
+        assert snapshot['today']['raw_spot_prices'][1]['timestamp'] - snapshot['today']['raw_spot_prices'][0]['timestamp'] == 3600
     finally:
         bc.shutdown()

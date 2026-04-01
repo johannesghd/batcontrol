@@ -1484,23 +1484,48 @@ class Batcontrol:
         provider = price_source.get('provider')
         raw_data = price_source.get('raw_data') or {}
         raw_prices = None
+        metadata = price_source.get('metadata') or {}
+        native_resolution = int(metadata.get('native_resolution_minutes') or interval_minutes)
+        selected_dt = datetime.datetime.fromtimestamp(selected_ts, tz=self.timezone)
+        source_start = selected_dt.replace(minute=0, second=0, microsecond=0)
 
         if provider == 'Energyforecast':
             data = raw_data.get('data') or []
-            raw_prices = [item.get('price') for item in data if item.get('price') is not None]
+            raw_prices = {}
+            interval_seconds = native_resolution * 60
+            for item in data:
+                price = item.get('price')
+                start = item.get('start')
+                if price is None or start is None:
+                    continue
+                timestamp = datetime.datetime.fromisoformat(
+                    start.replace('Z', '+00:00')
+                ).astimezone(self.timezone)
+                rel_interval = int((timestamp - source_start).total_seconds() / interval_seconds)
+                if rel_interval >= 0:
+                    raw_prices[rel_interval] = price
         elif provider == 'Awattar':
             data = raw_data.get('data') or []
-            raw_prices = [
-                item.get('marketprice') / 1000.0
-                for item in data
-                if item.get('marketprice') is not None
-            ]
+            raw_prices = {}
+            interval_seconds = native_resolution * 60
+            for item in data:
+                marketprice = item.get('marketprice')
+                start_timestamp = item.get('start_timestamp')
+                if marketprice is None or start_timestamp is None:
+                    continue
+                timestamp = datetime.datetime.fromtimestamp(
+                    start_timestamp / 1000,
+                    tz=self.timezone,
+                )
+                rel_interval = int((timestamp - source_start).total_seconds() / interval_seconds)
+                if rel_interval >= 0:
+                    raw_prices[rel_interval] = marketprice / 1000.0
         elif isinstance(raw_data.get('prices'), list):
             raw_prices = raw_data.get('prices')
 
         return self._align_dashboard_source_series(
             raw_prices,
-            price_source.get('metadata') or {},
+            metadata,
             selected_ts,
             interval_minutes,
         )
