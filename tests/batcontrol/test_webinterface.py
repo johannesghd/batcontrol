@@ -8,7 +8,7 @@ import pytz
 
 from batcontrol.core import Batcontrol, MODE_FORCE_CHARGING, MODE_LIMIT_BATTERY_CHARGE_RATE
 from batcontrol.datastore import DataRecorder
-from batcontrol.webinterface import align_timestamp, build_forecast_series
+from batcontrol.webinterface import align_timestamp, build_forecast_series, _build_dashboard_html
 
 
 def test_align_timestamp_uses_interval_start():
@@ -193,6 +193,14 @@ def test_dashboard_query_limit_scales_with_history_days():
 
     assert bc._get_dashboard_query_limit() > 500
     assert bc._get_dashboard_query_limit() == 3361
+
+
+def test_dashboard_price_axis_includes_zero_by_default():
+    """Combined chart should anchor the price axis at zero unless prices go negative."""
+    html = _build_dashboard_html("batcontrol")
+
+    assert "const rightBounds = options.rightBounds || getBounds(rightValues, !!options.rightIncludeZero);" in html
+    assert "rightIncludeZero: true," in html
 
 
 @patch('batcontrol.core.tariff_factory.create_tarif_provider')

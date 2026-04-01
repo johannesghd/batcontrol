@@ -618,7 +618,7 @@ def _build_dashboard_html(title: str) -> str:
       }}
 
       const leftBounds = options.leftBounds || getBounds(primaryLeftSeries.flatMap(item => item.points.map(point => point.value)), !!options.leftIncludeZero);
-      const rightBounds = options.rightBounds || getBounds(rightValues);
+      const rightBounds = options.rightBounds || getBounds(rightValues, !!options.rightIncludeZero);
       const socBounds = options.socBounds || {{ min: 0, max: 100 }};
       if (options.leftMaxStep) {{
         leftBounds.max = roundUp(leftBounds.max, options.leftMaxStep);
@@ -865,6 +865,7 @@ def _build_dashboard_html(title: str) -> str:
         leftIncludeZero: true,
         leftMaxStep: 500,
         rightAxis: true,
+        rightIncludeZero: true,
         rightMaxStep: 5,
         yDigits: 0,
         rightYDigits: 2,
