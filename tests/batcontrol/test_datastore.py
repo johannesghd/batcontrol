@@ -1,6 +1,7 @@
 """Tests for SQLite-backed persistence."""
 
 import sqlite3
+import time
 
 from batcontrol.datastore import DataRecorder
 from batcontrol.dynamictariff.baseclass import DynamicTariffBaseclass
@@ -31,6 +32,30 @@ class DummySolar(ForecastSolarBaseclass):
 
     def get_forecast_from_raw_data(self) -> dict[int, float]:
         return {0: 500.0, 1: 800.0}
+
+
+class CountingTariff(DummyTariff):
+    """Tariff provider that counts external fetches."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fetch_count = 0
+
+    def get_raw_data_from_provider(self) -> dict:
+        self.fetch_count += 1
+        return super().get_raw_data_from_provider()
+
+
+class CountingSolar(DummySolar):
+    """Solar provider that counts external fetches."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fetch_count = 0
+
+    def get_raw_data_from_provider(self, pvinstallation_name) -> dict:
+        self.fetch_count += 1
+        return super().get_raw_data_from_provider(pvinstallation_name)
 
 
 def test_data_recorder_persists_rows(tmp_path):
@@ -213,3 +238,95 @@ def test_solar_refresh_records_source_update(tmp_path):
         ).fetchone()
 
     assert row == ('solar_forecast', 'DummySolar')
+
+
+def test_tariff_restores_fresh_persisted_source_update(tmp_path):
+    """Fresh persisted price data should be restored into the runtime cache."""
+    db_path = tmp_path / 'tariff-restore.sqlite3'
+    recorder = DataRecorder(str(db_path))
+    created_at_ts = time.time()
+    recorder.record_source_update(
+        source_type='prices',
+        provider='CountingTariff',
+        raw_data={'prices': [0.21, 0.24]},
+        normalized_data={0: 0.21, 1: 0.24},
+        created_at_ts=created_at_ts,
+    )
+
+    tariff = CountingTariff(
+        timezone=None,
+        min_time_between_API_calls=900,
+        delay_evaluation_by_seconds=0,
+        target_resolution=60,
+        native_resolution=60,
+    )
+
+    tariff.set_data_recorder(recorder)
+
+    assert tariff.get_raw_data() == {'prices': [0.21, 0.24]}
+    assert tariff.fetch_count == 0
+    assert tariff.next_update_ts == created_at_ts + 900
+
+    tariff.refresh_data()
+
+    assert tariff.fetch_count == 0
+
+
+def test_solar_restores_fresh_persisted_source_update(tmp_path):
+    """Fresh persisted solar data should be restored into all runtime caches."""
+    db_path = tmp_path / 'solar-restore.sqlite3'
+    recorder = DataRecorder(str(db_path))
+    created_at_ts = time.time()
+    recorder.record_source_update(
+        source_type='solar_forecast',
+        provider='CountingSolar',
+        raw_data={'Roof': {'name': 'Roof', 'power': [500, 800]}},
+        normalized_data={0: 500.0, 1: 800.0},
+        metadata={'installations': ['Roof']},
+        created_at_ts=created_at_ts,
+    )
+
+    solar = CountingSolar(
+        pvinstallations=[{'name': 'Roof'}],
+        timezone=None,
+        min_time_between_api_calls=900,
+        delay_evaluation_by_seconds=0,
+        target_resolution=60,
+        native_resolution=60,
+    )
+
+    solar.set_data_recorder(recorder)
+
+    assert solar.get_raw_data('Roof') == {'name': 'Roof', 'power': [500, 800]}
+    assert solar.fetch_count == 0
+    assert solar.next_update_ts == created_at_ts + 900
+
+    solar.refresh_data()
+
+    assert solar.fetch_count == 0
+
+
+def test_tariff_ignores_stale_persisted_source_update(tmp_path):
+    """Stale persisted price data should not suppress a fresh provider fetch."""
+    db_path = tmp_path / 'tariff-stale.sqlite3'
+    recorder = DataRecorder(str(db_path))
+    recorder.record_source_update(
+        source_type='prices',
+        provider='CountingTariff',
+        raw_data={'prices': [0.21, 0.24]},
+        normalized_data={0: 0.21, 1: 0.24},
+        created_at_ts=time.time() - 3600,
+    )
+
+    tariff = CountingTariff(
+        timezone=None,
+        min_time_between_API_calls=900,
+        delay_evaluation_by_seconds=0,
+        target_resolution=60,
+        native_resolution=60,
+    )
+
+    tariff.set_data_recorder(recorder)
+    tariff.refresh_data()
+
+    assert tariff.fetch_count == 1

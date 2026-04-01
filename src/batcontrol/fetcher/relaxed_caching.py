@@ -118,6 +118,18 @@ class RelaxedCaching:
 
             return timestamp
 
+    def restore_entry(self, data: Any, timestamp: float) -> float:
+        """Restore a cache entry with a known timestamp."""
+        with self._lock:
+            self.cache_store[timestamp] = data
+            self.entry_key = timestamp
+            logger.debug(
+                'Restored cache entry with key %s (total entries: %d)',
+                timestamp,
+                len(self.cache_store)
+            )
+            return timestamp
+
     def clear_cache(self) -> None:
         """Clear all cache entries
 

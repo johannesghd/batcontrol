@@ -319,12 +319,19 @@ class DataRecorder:
             })
         return entries
 
-    def get_source_update_snapshot(self, source_type: str, at_ts: float = None):
+    def get_source_update_snapshot(
+            self,
+            source_type: str,
+            at_ts: float = None,
+            provider: str = None):
         """Return latest source update for a source type, optionally at/before a timestamp."""
         query = [
             "SELECT * FROM source_updates WHERE source_type = ?",
         ]
         params = [source_type]
+        if provider is not None:
+            query.append("AND provider = ?")
+            params.append(provider)
         if at_ts is not None:
             query.append("AND created_at_ts <= ?")
             params.append(at_ts)

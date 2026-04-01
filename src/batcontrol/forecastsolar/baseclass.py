@@ -83,6 +83,55 @@ class ForecastSolarBaseclass(ForecastSolarInterface):
     def set_data_recorder(self, data_recorder) -> None:
         """Attach optional persistence for source updates."""
         self.data_recorder = data_recorder
+        self._restore_cached_source_update()
+
+    def _restore_cached_source_update(self) -> None:
+        """Restore the latest persisted solar update into the in-memory caches."""
+        if self.data_recorder is None:
+            return
+        if any(cache.entry_key is not None for cache in self.cache_list.values()):
+            return
+
+        snapshot = self.data_recorder.get_source_update_snapshot(
+            source_type='solar_forecast',
+            provider=self.__class__.__name__,
+        )
+        if snapshot is None:
+            return
+
+        created_at_ts = float(snapshot.get('created_at_ts') or 0)
+        if created_at_ts <= 0:
+            return
+
+        now = time.time()
+        if now - created_at_ts > self.min_time_between_updates:
+            logger.info(
+                '%s: Ignoring persisted solar forecast older than refresh interval (age=%ds, max=%ds)',
+                self.__class__.__name__,
+                int(now - created_at_ts),
+                int(self.min_time_between_updates),
+            )
+            return
+
+        raw_data = snapshot.get('raw_data') or {}
+        restored_any = False
+        for unit in self.pvinstallations:
+            name = unit['name']
+            unit_data = raw_data.get(name)
+            if not unit_data:
+                continue
+            self.cache_list[name].restore_entry(unit_data, created_at_ts)
+            restored_any = True
+
+        if not restored_any:
+            return
+
+        self.next_update_ts = created_at_ts + self.min_time_between_updates
+        logger.info(
+            '%s: Restored persisted solar forecast from %s',
+            self.__class__.__name__,
+            datetime.datetime.fromtimestamp(created_at_ts, tz=self.timezone).isoformat(),
+        )
 
     def schedule_next_refresh(self) -> None:
         """ Schedule the next data refresh just after next_update_ts """
