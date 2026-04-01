@@ -367,8 +367,9 @@ class DefaultLogic(LogicInterface):
         higher_price_slots = []
         for slot in range(max_slots):
             future_price = prices[slot]
-            # !!! different formula compared to detect relevant slots
-            if future_price > current_price:
+            # Keep reserve for later slots on the same high-price plateau,
+            # but do not reserve the current slot against itself.
+            if slot > 0 and future_price >= current_price:
                 higher_price_slots.append(slot)
 
         higher_price_slots.sort()

@@ -156,6 +156,39 @@ class TestDefaultLogic(unittest.TestCase):
         result = self.logic.get_inverter_control_settings()
         self.assertTrue(result.allow_discharge, "Discharge should be allowed")
 
+    def test_discharge_not_allowed_during_equal_price_plateau(self):
+        """Keep reserve for later slots with the same high price."""
+        stored_energy = 1000
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy,
+            self.max_capacity,
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([100, 400, 400, 100]),
+            production=np.array([0, 0, 0, 0]),
+            prices={0: 0.35, 1: 0.35, 2: 0.35, 3: 0.20},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(self.logic.calculate(calc_input, calc_timestamp))
+
+        result = self.logic.get_inverter_control_settings()
+        calc_output = self.logic.get_calculation_output()
+
+        self.assertFalse(
+            result.allow_discharge,
+            "Discharge should stay blocked while later slots have the same high price",
+        )
+        self.assertGreater(
+            calc_output.reserved_energy,
+            stored_usable_energy,
+            "Reserve should include later equal-price plateau slots",
+        )
+
     def test_charge_calculation_when_charging_possible(self):
         """Test charge calculation when charging is possible due to low SOC"""
         stored_energy = 2000  # 2 kWh, well below charging limit (79% = 7.9 kWh)
