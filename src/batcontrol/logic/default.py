@@ -290,14 +290,28 @@ class DefaultLogic(LogicInterface):
             return None
 
         interval_hours = self.interval_minutes / 60.0
-        remaining_hours = cutoff_slots * interval_hours
-        if remaining_hours <= 0:
+        remaining_current_slot_hours = self.__get_remaining_current_slot_hours(calc_timestamp)
+        remaining_hours = remaining_current_slot_hours + max(0, cutoff_slots - 1) * interval_hours
+        if remaining_hours <= 0 or remaining_current_slot_hours <= 0:
             return None
 
-        current_load_power = current_net_consumption / interval_hours
+        current_load_power = current_net_consumption / remaining_current_slot_hours
         extra_export_power = excess_energy / remaining_hours
         min_discharge_rate = max(0.0, current_load_power + extra_export_power)
         return int(round(min_discharge_rate))
+
+    def __get_remaining_current_slot_hours(self, calc_timestamp: datetime.datetime) -> float:
+        """Return the remaining time in the current slot in hours."""
+        local_timestamp = calc_timestamp.astimezone(self.timezone)
+        slot_start_minute = (local_timestamp.minute // self.interval_minutes) * self.interval_minutes
+        slot_start = local_timestamp.replace(
+            minute=slot_start_minute,
+            second=0,
+            microsecond=0,
+        )
+        slot_end = slot_start + datetime.timedelta(minutes=self.interval_minutes)
+        remaining_seconds = max(0.0, (slot_end - local_timestamp).total_seconds())
+        return remaining_seconds / 3600.0
 
     def __get_morning_recharge_cutoff_slots(
             self,
