@@ -32,7 +32,7 @@ class DefaultLogic(LogicInterface):
         self.soften_price_difference_on_charging_factor = 5.0  # Default factor
         self.max_future_grid_export_power = 0  # W, 0 disables export flattening
         self.max_current_grid_export_power = 0  # W, 0 uses only the high-SOC taper floor
-        self.discharge_reserve_soc_buffer = 0.0  # Max fraction of total capacity kept as safety buffer
+        self.discharge_reserve_soc_buffer = 0.0  # Max fraction of total capacity kept as morning buffer
         self.discharge_reserve_soc_buffer_release_per_hour = 0.0  # Buffer released per future expensive hour
         self.timezone = timezone
         self.interval_minutes = interval_minutes
