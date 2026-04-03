@@ -574,6 +574,22 @@ class FroniusWR(InverterBaseclass):
 
     def set_mode_allow_discharge(self, min_discharge_rate: int = -1):
         """ Set the inverter to discharge the battery."""
+        if min_discharge_rate >= 0:
+            timeofuselist = [{'Active': True,
+                              'Power': int(min_discharge_rate),
+                              'ScheduleType': 'DISCHARGE_MIN',
+                              "TimeTable": {"Start": "00:00", "End": "23:59"},
+                              "Weekdays":
+                              {"Mon": True,
+                               "Tue": True,
+                               "Wed": True,
+                               "Thu": True,
+                               "Fri": True,
+                               "Sat": True,
+                               "Sun": True}
+                              }]
+            return self.set_time_of_use(timeofuselist)
+
         timeofuselist = []
         if self.max_pv_charge_rate > 0:
             timeofuselist = [{'Active': True,
@@ -589,20 +605,6 @@ class FroniusWR(InverterBaseclass):
                                "Sat": True,
                                "Sun": True}
                               }]
-        if min_discharge_rate >= 0:
-            timeofuselist.append({'Active': True,
-                                  'Power': int(min_discharge_rate),
-                                  'ScheduleType': 'DISCHARGE_MIN',
-                                  "TimeTable": {"Start": "00:00", "End": "23:59"},
-                                  "Weekdays":
-                                  {"Mon": True,
-                                   "Tue": True,
-                                   "Wed": True,
-                                   "Thu": True,
-                                   "Fri": True,
-                                   "Sat": True,
-                                   "Sun": True}
-                                  })
         response = self.set_time_of_use(timeofuselist)
 
         return response
@@ -616,6 +618,22 @@ class FroniusWR(InverterBaseclass):
         """
         if limit_charge_rate < 0:
             raise ValueError(f"limit_charge_rate must be >= 0, got {limit_charge_rate}")
+
+        if min_discharge_rate >= 0:
+            timeofuselist = [{'Active': True,
+                              'Power': int(min_discharge_rate),
+                              'ScheduleType': 'DISCHARGE_MIN',
+                              "TimeTable": {"Start": "00:00", "End": "23:59"},
+                              "Weekdays":
+                              {"Mon": True,
+                               "Tue": True,
+                               "Wed": True,
+                               "Thu": True,
+                               "Fri": True,
+                               "Sat": True,
+                               "Sun": True}
+                              }]
+            return self.set_time_of_use(timeofuselist)
 
         # Always set TimeOfUse rule for mode 8 (even if 0 = no charging)
         timeofuselist = [{'Active': True,
@@ -631,20 +649,6 @@ class FroniusWR(InverterBaseclass):
                            "Sat": True,
                            "Sun": True}
                           }]
-        if min_discharge_rate >= 0:
-            timeofuselist.append({'Active': True,
-                                  'Power': int(min_discharge_rate),
-                                  'ScheduleType': 'DISCHARGE_MIN',
-                                  "TimeTable": {"Start": "00:00", "End": "23:59"},
-                                  "Weekdays":
-                                  {"Mon": True,
-                                   "Tue": True,
-                                   "Wed": True,
-                                   "Thu": True,
-                                   "Fri": True,
-                                   "Sat": True,
-                                   "Sun": True}
-                                  })
         response = self.set_time_of_use(timeofuselist)
         return response
 
