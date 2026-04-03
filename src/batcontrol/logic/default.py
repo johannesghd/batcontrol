@@ -296,7 +296,7 @@ class DefaultLogic(LogicInterface):
             return None
 
         current_load_power = current_net_consumption / remaining_current_slot_hours
-        extra_export_power = excess_energy / remaining_hours
+        extra_export_power = min(excess_energy / remaining_hours,650)
         min_discharge_rate = max(0.0, current_load_power + extra_export_power)
         return int(round(min_discharge_rate))
 
