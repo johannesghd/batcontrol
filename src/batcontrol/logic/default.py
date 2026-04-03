@@ -92,6 +92,7 @@ class DefaultLogic(LogicInterface):
             allow_discharge=False,
             charge_from_grid=False,
             charge_rate=0,
+            min_battery_discharge_rate=-1,
             limit_battery_charge_rate=-1
         )
 
@@ -113,10 +114,25 @@ class DefaultLogic(LogicInterface):
         )
 
         if self.__is_discharge_allowed(calc_input, net_consumption, prices, calc_timestamp):
+            min_discharge_rate = self.__get_night_discharge_min_rate(
+                calc_input,
+                net_consumption[:max_slot],
+                prices,
+                calc_timestamp,
+            )
+
             inverter_control_settings.allow_discharge = True
+            inverter_control_settings.min_battery_discharge_rate = (
+                min_discharge_rate if min_discharge_rate is not None else -1
+            )
             inverter_control_settings.limit_battery_charge_rate = (
                 export_charge_limit if export_charge_limit is not None else -1
             )
+            if min_discharge_rate is not None:
+                logger.info(
+                    '[Rule] Setting minimum battery discharge to %d W to spend SoC excess before morning recharge',
+                    min_discharge_rate,
+                )
             if export_charge_limit is not None:
                 logger.info(
                     '[Rule] Limiting PV battery charge to %d W to flatten export to %d W',
@@ -244,6 +260,75 @@ class DefaultLogic(LogicInterface):
             current_surplus_power,
         )
         return int(round(max(charge_limit_power, minimum_charge_power)))
+
+    def __get_night_discharge_min_rate(
+            self,
+            calc_input: CalculationInput,
+            net_consumption: np.ndarray,
+            prices: dict,
+            calc_timestamp: datetime.datetime) -> Optional[int]:
+        """Return a minimum discharge rate to spend SoC excess before morning recharge."""
+        if len(net_consumption) == 0:
+            return None
+
+        current_net_consumption = float(net_consumption[0])
+        if current_net_consumption <= 0:
+            return None
+
+        cutoff_slots = self.__get_morning_recharge_cutoff_slots(net_consumption, calc_timestamp)
+        if cutoff_slots is None or cutoff_slots <= 0:
+            return None
+
+        reserve_buffer = self.__get_discharge_reserve_buffer(prices, prices[0], len(net_consumption))
+        positive_net_consumption = np.maximum(net_consumption[:cutoff_slots], 0.0)
+        excess_energy = (
+            float(calc_input.stored_usable_energy)
+            - reserve_buffer
+            - float(np.sum(positive_net_consumption))
+        )
+        if excess_energy <= 0:
+            return None
+
+        interval_hours = self.interval_minutes / 60.0
+        remaining_hours = cutoff_slots * interval_hours
+        if remaining_hours <= 0:
+            return None
+
+        current_load_power = current_net_consumption / interval_hours
+        extra_export_power = excess_energy / remaining_hours
+        min_discharge_rate = max(0.0, current_load_power + extra_export_power)
+        return int(round(min_discharge_rate))
+
+    def __get_morning_recharge_cutoff_slots(
+            self,
+            net_consumption: np.ndarray,
+            calc_timestamp: datetime.datetime) -> Optional[int]:
+        """Return the number of slots until the first strong PV surplus slot or noon."""
+        if len(net_consumption) == 0:
+            return None
+
+        local_timestamp = calc_timestamp.astimezone(self.timezone)
+        slot_start = local_timestamp.replace(
+            minute=(local_timestamp.minute // self.interval_minutes) * self.interval_minutes,
+            second=0,
+            microsecond=0,
+        )
+        next_noon = slot_start.replace(hour=12, minute=0)
+        if slot_start >= next_noon:
+            next_noon += datetime.timedelta(days=1)
+
+        surplus_threshold_power = self.max_future_grid_export_power or 650
+        surplus_threshold_energy = surplus_threshold_power * self.interval_minutes / 60.0
+
+        max_slots = len(net_consumption)
+        for slot in range(1, max_slots + 1):
+            slot_time = slot_start + datetime.timedelta(minutes=slot * self.interval_minutes)
+            if slot_time >= next_noon:
+                return slot
+            if slot < max_slots and float(net_consumption[slot]) < -surplus_threshold_energy:
+                return slot
+
+        return max_slots
 
     def __get_export_flatten_min_charge_power(
             self,

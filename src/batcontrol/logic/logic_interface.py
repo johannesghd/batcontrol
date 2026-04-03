@@ -35,6 +35,9 @@ class InverterControlSettings:
     # Force charge mode is used to charge the battery from grid
     charge_from_grid: bool
     charge_rate: int
+    # Minimum discharge rate while still allowing discharge.
+    # -1 means no minimum, 0 means no forced discharge.
+    min_battery_discharge_rate: int
     # Limit charge rate (via PV) to a certain value Wh
     # -1 means no limit, 0 means no charging
     limit_battery_charge_rate: int

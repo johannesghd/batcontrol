@@ -392,21 +392,26 @@ class ResilientInverterWrapper(InverterInterface):
             mark_initialized=True
         )
 
-    def set_mode_allow_discharge(self):
+    def set_mode_allow_discharge(self, min_discharge_rate: int = -1):
         """Set allow discharge mode with resilience handling."""
         return self._call_with_resilience(
             self._inverter.set_mode_allow_discharge,
             "set_mode_allow_discharge",
+            None, None,
+            method_args=(min_discharge_rate,),
             mark_initialized=True
         )
 
-    def set_mode_limit_battery_charge(self, limit_charge_rate: int):
+    def set_mode_limit_battery_charge(
+            self,
+            limit_charge_rate: int,
+            min_discharge_rate: int = -1):
         """Set limit battery charge mode with resilience handling."""
         return self._call_with_resilience(
             self._inverter.set_mode_limit_battery_charge,
             "set_mode_limit_battery_charge",
             None, None,
-            method_args=(limit_charge_rate,),
+            method_args=(limit_charge_rate, min_discharge_rate),
             mark_initialized=True
         )
 

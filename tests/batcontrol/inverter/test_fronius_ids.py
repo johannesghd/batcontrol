@@ -423,6 +423,34 @@ class TestFroniusConfigurableIDs(unittest.TestCase):
     @patch('batcontrol.inverter.fronius.FroniusWR.set_allow_grid_charging')
     @patch('batcontrol.inverter.fronius.FroniusWR.send_request')
     @patch('batcontrol.inverter.fronius.FroniusWR.set_time_of_use')
+    def test_set_mode_limit_battery_charge_with_min_discharge(
+            self, mock_set_tou, mock_send_request, mock_set_allow, mock_set_solar,
+            mock_backup_tou, mock_get_powerunit, mock_get_battery, mock_get_firmware):
+        """Test that minimum discharge is sent as an additional DISCHARGE_MIN rule."""
+        self._setup_mocks(mock_get_firmware, mock_get_battery, mock_get_powerunit,
+                         mock_send_request, inverter_id='1', controller_id='0')
+        mock_set_tou.return_value = Mock()
+
+        inverter = FroniusWR(self.base_config)
+        inverter.set_mode_limit_battery_charge(2000, 900)
+
+        mock_set_tou.assert_called_once()
+        tou_list = mock_set_tou.call_args[0][0]
+
+        self.assertEqual(len(tou_list), 2)
+        self.assertEqual(tou_list[0]['Power'], 2000)
+        self.assertEqual(tou_list[0]['ScheduleType'], 'CHARGE_MAX')
+        self.assertEqual(tou_list[1]['Power'], 900)
+        self.assertEqual(tou_list[1]['ScheduleType'], 'DISCHARGE_MIN')
+
+    @patch('batcontrol.inverter.fronius.FroniusWR.get_firmware_version')
+    @patch('batcontrol.inverter.fronius.FroniusWR.get_battery_config')
+    @patch('batcontrol.inverter.fronius.FroniusWR.get_powerunit_config')
+    @patch('batcontrol.inverter.fronius.FroniusWR.backup_time_of_use')
+    @patch('batcontrol.inverter.fronius.FroniusWR.set_solar_api_active')
+    @patch('batcontrol.inverter.fronius.FroniusWR.set_allow_grid_charging')
+    @patch('batcontrol.inverter.fronius.FroniusWR.send_request')
+    @patch('batcontrol.inverter.fronius.FroniusWR.set_time_of_use')
     def test_set_mode_limit_battery_charge_zero(self, mock_set_tou, mock_send_request,
                                                 mock_set_allow, mock_set_solar, mock_backup_tou,
                                                 mock_get_powerunit, mock_get_battery, mock_get_firmware):

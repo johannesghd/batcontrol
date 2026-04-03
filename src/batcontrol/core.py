@@ -601,9 +601,12 @@ class Batcontrol:
 
         if inverter_settings.allow_discharge:
             if inverter_settings.limit_battery_charge_rate >= 0:
-                self.limit_battery_charge_rate(inverter_settings.limit_battery_charge_rate)
+                self.limit_battery_charge_rate(
+                    inverter_settings.limit_battery_charge_rate,
+                    inverter_settings.min_battery_discharge_rate,
+                )
             else:
-                self.allow_discharging()
+                self.allow_discharging(inverter_settings.min_battery_discharge_rate)
         elif inverter_settings.charge_from_grid:
             self.force_charge(inverter_settings.charge_rate)
         else:
@@ -666,8 +669,15 @@ class Batcontrol:
         if self.last_charge_rate > 0 and mode != MODE_FORCE_CHARGING:
             self.__set_charge_rate(0)
 
-    def allow_discharging(self):
-        """ Allow unlimited discharging of the battery """
+    def allow_discharging(self, min_discharge_rate: int = -1):
+        """Allow battery discharge with an optional minimum discharge rate."""
+        if min_discharge_rate >= 0:
+            logger.info('Mode: Force Battery to discharge minimum %d W', min_discharge_rate)
+            self.inverter.set_mode_allow_discharge(min_discharge_rate)
+            self.__set_mode(MODE_ALLOW_DISCHARGING)
+            self.last_limit_battery_charge_rate = -1
+            return
+
         taper_limit = self._get_high_soc_charge_taper_limit()
         if taper_limit is not None:
             logger.info(
@@ -682,7 +692,7 @@ class Batcontrol:
             return
 
         logger.info('Mode: Allow Discharging')
-        self.inverter.set_mode_allow_discharge()
+        self.inverter.set_mode_allow_discharge(min_discharge_rate)
         self.__set_mode(MODE_ALLOW_DISCHARGING)
         self.last_limit_battery_charge_rate = -1
 
@@ -704,15 +714,19 @@ class Batcontrol:
         self.__set_charge_rate(charge_rate)
         self.last_limit_battery_charge_rate = -1
 
-    def limit_battery_charge_rate(self, limit_charge_rate: int = 0):
+    def limit_battery_charge_rate(
+            self,
+            limit_charge_rate: int = 0,
+            min_discharge_rate: int = -1):
         """ Limit PV charging rate while allowing battery discharge
 
         Args:
             limit_charge_rate: Maximum charge rate in W (0 = no charging, -1 = no limit)
+            min_discharge_rate: Minimum discharge rate in W (-1 = no minimum)
         """
         # If -1, use no limit (don't apply mode 8)
         if limit_charge_rate < 0:
-            self.allow_discharging()
+            self.allow_discharging(min_discharge_rate)
             return
 
         # Always enforce a non-negative limit
@@ -731,8 +745,17 @@ class Batcontrol:
 
         effective_limit = self._apply_high_soc_charge_taper(effective_limit)
 
+        if min_discharge_rate >= 0:
+            logger.warning(
+                'Ignoring PV charge limit %d W because minimum discharge %d W is active',
+                effective_limit,
+                min_discharge_rate,
+            )
+            self.allow_discharging(min_discharge_rate)
+            return
+
         logger.info('Mode: Limit Battery Charge Rate to %d W, discharge allowed', effective_limit)
-        self.inverter.set_mode_limit_battery_charge(effective_limit)
+        self.inverter.set_mode_limit_battery_charge(effective_limit, min_discharge_rate)
         self.__set_mode(MODE_LIMIT_BATTERY_CHARGE_RATE)
         self.last_limit_battery_charge_rate = effective_limit
 

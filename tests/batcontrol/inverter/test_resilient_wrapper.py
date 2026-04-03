@@ -79,13 +79,13 @@ class MockInverter:
         if self.should_fail:
             raise ConnectionError("Inverter unreachable")
 
-    def set_mode_allow_discharge(self):
-        self.set_mode_calls.append(('allow_discharge',))
+    def set_mode_allow_discharge(self, min_discharge_rate=-1):
+        self.set_mode_calls.append(('allow_discharge', min_discharge_rate))
         if self.should_fail:
             raise ConnectionError("Inverter unreachable")
 
-    def set_mode_limit_battery_charge(self, limit_charge_rate):
-        self.set_mode_calls.append(('limit_battery_charge', limit_charge_rate))
+    def set_mode_limit_battery_charge(self, limit_charge_rate, min_discharge_rate=-1):
+        self.set_mode_calls.append(('limit_battery_charge', limit_charge_rate, min_discharge_rate))
         if self.should_fail:
             raise ConnectionError("Inverter unreachable")
 
@@ -420,7 +420,7 @@ class TestResilientWrapperWriteOperations:
 
         assert ('force_charge', 5000) in mock_inverter.set_mode_calls
         assert ('avoid_discharge',) in mock_inverter.set_mode_calls
-        assert ('allow_discharge',) in mock_inverter.set_mode_calls
+        assert ('allow_discharge', -1) in mock_inverter.set_mode_calls
 
     def test_set_mode_failure_during_outage(self):
         """Set mode failures during outage should raise RuntimeError (no cache)."""

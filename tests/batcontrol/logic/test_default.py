@@ -249,6 +249,36 @@ class TestDefaultLogic(unittest.TestCase):
         calc_output = logic.get_calculation_output()
         self.assertAlmostEqual(calc_output.reserved_energy, 900.0, delta=0.1)
 
+    def test_force_night_discharge_only_for_soc_excess(self):
+        """Use DISCHARGE_MIN only when stored usable energy exceeds the morning target."""
+        logic = DefaultLogic(timezone=datetime.timezone.utc, interval_minutes=60)
+        logic.set_calculation_parameters(self.calculation_parameters)
+        logic.discharge_reserve_soc_buffer = 0.01
+        logic.discharge_reserve_soc_buffer_release_per_hour = 0.01
+        logic.max_future_grid_export_power = 650
+
+        stored_energy = 3000
+        stored_usable_energy, free_capacity = self._calculate_battery_values(
+            stored_energy,
+            self.max_capacity,
+        )
+
+        calc_input = CalculationInput(
+            consumption=np.array([500, 500, 500, 0]),
+            production=np.array([0, 0, 0, 1000]),
+            prices={0: 0.35, 1: 0.30, 2: 0.25, 3: 0.10},
+            stored_energy=stored_energy,
+            stored_usable_energy=stored_usable_energy,
+            free_capacity=free_capacity,
+        )
+
+        calc_timestamp = datetime.datetime(2025, 6, 20, 21, 0, 0, tzinfo=datetime.timezone.utc)
+        self.assertTrue(logic.calculate(calc_input, calc_timestamp))
+
+        result = logic.get_inverter_control_settings()
+        self.assertTrue(result.allow_discharge)
+        self.assertEqual(result.min_battery_discharge_rate, 833)
+
     def test_charge_calculation_when_charging_possible(self):
         """Test charge calculation when charging is possible due to low SOC"""
         stored_energy = 2000  # 2 kWh, well below charging limit (79% = 7.9 kWh)

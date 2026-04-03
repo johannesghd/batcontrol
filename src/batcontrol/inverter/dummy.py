@@ -27,18 +27,22 @@ class Dummy(InverterBaseclass):
         self.mode = 'force_charge'
         logger.debug('Dummy inverter: Set to force charge mode (rate: %dW)', chargerate)
 
-    def set_mode_allow_discharge(self):
+    def set_mode_allow_discharge(self, min_discharge_rate: int = -1):
         self.mode = 'allow_discharge'
-        logger.debug('Dummy inverter: Set to allow discharge mode')
+        logger.debug('Dummy inverter: Set to allow discharge mode (minimum: %dW)', min_discharge_rate)
 
     def set_mode_avoid_discharge(self):
         self.mode = 'avoid_discharge'
         logger.debug('Dummy inverter: Set to avoid discharge mode')
 
-    def set_mode_limit_battery_charge(self, limit_charge_rate: int):
+    def set_mode_limit_battery_charge(self, limit_charge_rate: int, min_discharge_rate: int = -1):
         """ Dummy implementation for limit battery charge mode """
         self.mode = 'limit_battery_charge'
-        logger.info('DUMMY: Limit battery charge rate to %d W', limit_charge_rate)
+        logger.info(
+            'DUMMY: Limit battery charge rate to %d W (minimum discharge: %d W)',
+            limit_charge_rate,
+            min_discharge_rate,
+        )
 
     def get_capacity(self):
         return self.installed_capacity

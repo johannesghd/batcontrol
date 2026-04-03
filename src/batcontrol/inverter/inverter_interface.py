@@ -17,15 +17,19 @@ class InverterInterface(ABC):
         """ Set the inverter to avoid discharge mode """
 
     @abstractmethod
-    def set_mode_allow_discharge(self):
+    def set_mode_allow_discharge(self, min_discharge_rate: int = -1):
         """ Set the inverter to allow discharge mode """
 
     @abstractmethod
-    def set_mode_limit_battery_charge(self, limit_charge_rate: int):
+    def set_mode_limit_battery_charge(
+            self,
+            limit_charge_rate: int,
+            min_discharge_rate: int = -1):
         """ Set the inverter to limit PV charging while allowing discharge
 
         Args:
             limit_charge_rate: Maximum charge rate in W (0 = no charging)
+            min_discharge_rate: Minimum discharge rate in W (-1 = no minimum)
         """
 
     @abstractmethod
@@ -86,4 +90,3 @@ class InverterInterface(ABC):
     def shutdown(self):
         """ Class to bring the inverter into a consistent state while
             batcontrol is shutting down """
-

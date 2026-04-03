@@ -572,7 +572,7 @@ class FroniusWR(InverterBaseclass):
                           }]
         return self.set_time_of_use(timeofuselist)
 
-    def set_mode_allow_discharge(self):
+    def set_mode_allow_discharge(self, min_discharge_rate: int = -1):
         """ Set the inverter to discharge the battery."""
         timeofuselist = []
         if self.max_pv_charge_rate > 0:
@@ -589,15 +589,30 @@ class FroniusWR(InverterBaseclass):
                                "Sat": True,
                                "Sun": True}
                               }]
+        if min_discharge_rate >= 0:
+            timeofuselist.append({'Active': True,
+                                  'Power': int(min_discharge_rate),
+                                  'ScheduleType': 'DISCHARGE_MIN',
+                                  "TimeTable": {"Start": "00:00", "End": "23:59"},
+                                  "Weekdays":
+                                  {"Mon": True,
+                                   "Tue": True,
+                                   "Wed": True,
+                                   "Thu": True,
+                                   "Fri": True,
+                                   "Sat": True,
+                                   "Sun": True}
+                                  })
         response = self.set_time_of_use(timeofuselist)
 
         return response
 
-    def set_mode_limit_battery_charge(self, limit_charge_rate: int):
+    def set_mode_limit_battery_charge(self, limit_charge_rate: int, min_discharge_rate: int = -1):
         """ Limit PV charging rate while allowing battery discharge
 
         Args:
             limit_charge_rate: Maximum charge rate in W (0 = no charging)
+            min_discharge_rate: Minimum discharge rate in W (-1 = no minimum)
         """
         if limit_charge_rate < 0:
             raise ValueError(f"limit_charge_rate must be >= 0, got {limit_charge_rate}")
@@ -616,6 +631,20 @@ class FroniusWR(InverterBaseclass):
                            "Sat": True,
                            "Sun": True}
                           }]
+        if min_discharge_rate >= 0:
+            timeofuselist.append({'Active': True,
+                                  'Power': int(min_discharge_rate),
+                                  'ScheduleType': 'DISCHARGE_MIN',
+                                  "TimeTable": {"Start": "00:00", "End": "23:59"},
+                                  "Weekdays":
+                                  {"Mon": True,
+                                   "Tue": True,
+                                   "Wed": True,
+                                   "Thu": True,
+                                   "Fri": True,
+                                   "Sat": True,
+                                   "Sun": True}
+                                  })
         response = self.set_time_of_use(timeofuselist)
         return response
 

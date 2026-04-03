@@ -338,14 +338,14 @@ class MqttInverter(InverterBaseclass):
         )
         self.charge_rate = chargerate
 
-    def set_mode_allow_discharge(self):
+    def set_mode_allow_discharge(self, min_discharge_rate: int = -1):
         """
         Set inverter to allow discharge mode.
 
         Publishes mode to MQTT command topic (non-retained).
         """
         self.last_mode = 'allow_discharge'
-        logger.info('Setting mode to allow_discharge')
+        logger.info('Setting mode to allow_discharge (minimum: %sW)', min_discharge_rate)
 
         # Publish mode command (QoS 1, not retained)
         self.mqtt_client.publish(
@@ -372,7 +372,7 @@ class MqttInverter(InverterBaseclass):
             retain=False
         )
 
-    def set_mode_limit_battery_charge(self, limit_charge_rate: int):
+    def set_mode_limit_battery_charge(self, limit_charge_rate: int, min_discharge_rate: int = -1):
         """
         Set inverter to limit battery charge rate mode.
 
@@ -382,7 +382,11 @@ class MqttInverter(InverterBaseclass):
             limit_charge_rate: Maximum charge rate in W (0 = no charging)
         """
         self.last_mode = 'limit_battery_charge'
-        logger.info('Setting mode to limit_battery_charge with max rate %sW', limit_charge_rate)
+        logger.info(
+            'Setting mode to limit_battery_charge with max rate %sW (minimum discharge: %sW)',
+            limit_charge_rate,
+            min_discharge_rate,
+        )
 
         # Publish mode command (QoS 1, not retained)
         self.mqtt_client.publish(

@@ -140,6 +140,7 @@ class TestProductionOffset:
                     allow_discharge=True,
                     charge_from_grid=False,
                     charge_rate=0,
+                    min_battery_discharge_rate=-1,
                     limit_battery_charge_rate=-1  # No limit
                 )
                 mock_logic.get_inverter_control_settings = Mock(return_value=inverter_settings)
@@ -251,6 +252,7 @@ class TestProductionOffset:
                     allow_discharge=True,
                     charge_from_grid=False,
                     charge_rate=0,
+                    min_battery_discharge_rate=-1,
                     limit_battery_charge_rate=-1
                 )
                 calc_output = CalculationOutput(
